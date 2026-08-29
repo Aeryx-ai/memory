@@ -36,7 +36,7 @@ Entity, one per user. The OKF bundle at `MEMORY_DIR`, a git repository.
 ### Invariants
 
 - `root` is a git work tree with root `index.md` present; `Init` establishes both or fails.
-- `Sync` never runs two git operations at once: a lock directory under `root` with a stale timeout serializes them.
+- `Sync` never runs two git operations at once: a lock directory under `root` with a stale timeout serializes them, and a caller that finds it held returns without waiting.
 
 ### Relationships
 
@@ -107,7 +107,7 @@ Unknown frontmatter keys are preserved on round trip, as OKF requires.
 - `generated.by` is a well-formed `Actor`.
 - `sources[].resource` values are unique within the concept.
 - No secret pattern in `title`, `description` or `body`; refusal writes nothing.
-- Every mutation rewrites the whole file temp-then-rename, so a reader never sees a partial concept.
+- Every mutation rewrites the whole file temp-then-rename, so a reader never sees a partial concept. Concept writes take no lock; the same slug written twice is last-writer-wins.
 
 ### States
 

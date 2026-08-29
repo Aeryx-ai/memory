@@ -6,7 +6,7 @@ Companion artifacts: [context map](memory-context-map.md), [domain model](memory
 
 ## Goal
 
-One memory store every coding agent on every machine reads and writes the same way. Replace three pi extensions (`@guygrigsby/pi-claude-memory`, `pi-memory`, `pi-observational-memory`) with one, add a Claude Code plugin on the same store, migrate every existing memory into it idempotently.
+One memory store every coding agent on every machine reads and writes the same way, and fast: no turn ever waits on memory. Replace three pi extensions (`@guygrigsby/pi-claude-memory`, `pi-memory`, `pi-observational-memory`) with one, add a Claude Code plugin on the same store, migrate every existing memory into it idempotently.
 
 ## Standard
 
@@ -59,6 +59,18 @@ The CLI is the only writer. It refuses (nothing written, exit 3) a type outside 
 
 A Session Summary is a concept of type `Session Summary`: one file per compaction, exit, or migrated daily-log day, `generated.by` the harness actor, `sources[].resource` the session id. One file per event means concurrent sessions never contend on a shared file.
 
+## Speed
+
+The three extensions being replaced are slow for the same reasons: model calls on the hot path (observer and reflector passes, background reviews every N turns, a blocking exit summary), a search index rebuilt after every write, and per-turn context rebuilds that bust the prefix cache. This design has none of them.
+
+- Read path: `context` reads two `index.md` files and N summary files already on disk. No model, no database, no network. Budget 20ms.
+- Write path: `remember` writes one file temp-then-rename and returns. Budget 30ms. Index regeneration, log append, git commit and push run in one detached background process spawned by the write; the caller never waits.
+- Concurrency: concept writes never lock; each is its own file, and two writers to the same slug are last-writer-wins, no merge. Only git operations take the lock, and a background job that finds it held exits instead of waiting: the next write's job commits everything pending with `git add -A`.
+- Drop policy: a lost background job means a stale index or an uncommitted concept, never a corrupt file. `check` finds it; the next write or `index` repairs it. Memory is not a ledger; losing one summary is acceptable, waiting on one is not.
+- Model calls happen at exactly two points, compaction and exit, and both run detached (`pi -p` or `claude -p` on a cheap model) so the harness never waits for them. Nothing runs on a timer, nothing observes turns.
+- Session start: pull runs detached; the context snapshot is taken from local state immediately. A pull that lands mid-session shows up next session.
+- Prefix cache: the injected block is byte-stable within a session except after a memory tool write or a compaction.
+
 ## Package
 
 Repo `github.com/aeryx-ai/memory` (org to be created; the handle does not exist on GitHub yet), checked out at `~/projects/memory`. The repo root is the npm package `@aeryx/memory`: library, the `memory` CLI (`bin`) and the pi extension (`pi.extensions`) in one package, so lib and CLI can never drift apart. `claude-plugin/` in the same repo is the Claude Code plugin, with a `.claude-plugin/marketplace.json` at the repo root so `claude plugin marketplace add aeryx-ai/memory` installs it; the guygrigsby marketplace can point at it too. `pi-extensions/claude-memory` is deleted once this ships. Dependencies: `yaml` for frontmatter, `git` on PATH. No database, no daemon.
@@ -71,37 +83,37 @@ Agent-facing: JSON to stdout by default, `--md` for markdown, exit codes the cal
 | --- | --- |
 | `init` | create the bundle, `git init`, root `index.md` with `okf_version` |
 | `project-id [--cwd]` | print the project id for a working directory |
-| `remember --type T --title X [--description] [--tags a,b] [--source R]... [--actor A] [--cwd] [--status draft]` | body on stdin; create or revise a concept; regen index; append log; commit; background push |
-| `deprecate <slug\|path>` / `restore <slug\|path>` | status change, index, log, commit |
+| `remember --type T --title X [--description] [--tags a,b] [--source R]... [--actor A] [--cwd] [--status draft]` | body on stdin; write the concept and return; index, log, commit and push follow in a detached job |
+| `deprecate <slug\|path>` / `restore <slug\|path>` | rewrite status and return; index, log, commit in the detached job |
 | `recall [--type T] [--cwd] [--deprecated] [query]` | term match over title, description, tags, body, ranked; root plus project by default |
 | `show <slug\|path>` | one concept, frontmatter and body |
 | `summarize --actor A --source R [--cwd] [--summarize-cmd CMD]` | body on stdin (or stdin piped through CMD, which must print the summary); writes a Session Summary |
 | `context [--cwd] [--summaries 3] [--budget bytes]` | the bytes a harness injects: root index, project index, latest N Session Summary bodies; deterministic for the same bundle state so prefix caches hold |
 | `index` | regenerate every `index.md` |
 | `check` | every non-reserved `.md` parses, `type` legal for its directory, no secrets, every index matches regeneration; exit 4 on any failure |
-| `sync [--pull\|--push]` | commit pending, `pull --rebase`, regen index if the pull changed anything, push |
+| `sync [--pull\|--push]` | commit pending, `pull --rebase`, regen index if the pull changed anything, push; exits at once if the lock is held |
 | `migrate <claude\|hermes\|pi-memory\|codex\|all> [--dry-run]` | import legacy stores, idempotent |
 | `doctor` | bundle present, remote set, `check` clean, Claude `autoMemoryEnabled` still on, legacy pi packages still installed |
 
-Actor defaults to `human:$USER` when not passed; adapters always pass one. Concurrency: concepts and indexes are written temp-then-rename; git operations serialize on a lock directory inside the bundle with a stale timeout. A rebase conflict on a concept file aborts the rebase, exits 5, and `doctor` reports it until resolved by hand; a conflict on a generated file is resolved by regeneration.
+Actor defaults to `human:$USER` when not passed; adapters always pass one. Concepts and indexes are written temp-then-rename; git operations serialize on a lock directory inside the bundle with a stale timeout, and a job that finds it held exits. A rebase conflict on a concept file aborts the rebase, exits 5, and `doctor` reports it until resolved by hand; a conflict on a generated file is resolved by regeneration.
 
 ## pi extension
 
 Registered by the package's `pi.extensions` entry.
 
-- `session_start`: background `memory sync --pull` capped at 5s, then snapshot `memory context`.
+- `session_start`: spawn detached `memory sync --pull`; snapshot `memory context` from local state at once.
 - `before_agent_start`: append the snapshot inside `<memory-context bundle=… project=…>` plus a two-line note naming the tools. The snapshot refreshes only after a memory tool writes, after compaction, and on day rollover, so the prefix stays byte-stable between.
 - Tools `memory_remember`, `memory_recall`, `memory_deprecate`, `memory_summarize`, actor `pi/<model id>`.
 - `session_compact`: pi's compaction summary becomes a Session Summary, no extra model call.
-- `session_shutdown`: exit summary via one `complete` call on `settings["memory"].summaryModel` (default: session model), 10s cap, `MEMORY_EXIT_SUMMARY=off` disables.
+- `session_shutdown`: write the transcript tail to a temp file and spawn detached `pi -p --model <settings["memory"].summaryModel>` piped into `memory summarize`; quit does not wait. `MEMORY_EXIT_SUMMARY=off` disables.
 - Commands `/memory` (doctor), `/memory recall <q>`, `/memory sync`.
 
 ## Claude Code plugin
 
 `claude-plugin/` in the memory repo. Requires `npm i -g @aeryx/memory`; `doctor` says so when the binary is missing.
 
-- `SessionStart` (startup, resume, clear, compact): `memory sync --pull` then `memory context --md` as `additionalContext`, followed by the usage note (remember with `memory remember …` through Bash, recall with `memory recall`).
-- `PreCompact` and `SessionEnd`: hook script extracts the transcript tail from `transcript_path` and pipes it to `memory summarize --actor claude-code/<model> --source claude-code:session/<id> --summarize-cmd "claude -p --model claude-haiku-4-5-20251001 <prompt>"`. Same OAuth, no key. Timeout 120s. Whether `claude -p` runs cleanly inside a hook is the first thing the plan verifies.
+- `SessionStart` (startup, resume, clear, compact): spawn detached `memory sync --pull`, print `memory context --md` as `additionalContext`, followed by the usage note (remember with `memory remember …` through Bash, recall with `memory recall`).
+- `PreCompact` and `SessionEnd`: hook script extracts the transcript tail from `transcript_path` and spawns a detached job that pipes it through `claude -p --model claude-haiku-4-5-20251001 <prompt>` into `memory summarize --actor claude-code/<model> --source claude-code:session/<id>`, and exits. Same OAuth, no key, the hook returns in milliseconds. Whether a detached `claude -p` completes after the hook exits is the first thing the plan verifies.
 - Skill `memory`: the four-kind guidance the harness uses today, restated against the CLI, with the placement rules.
 - Command `/memory`: doctor, recall.
 - README: set `"autoMemoryEnabled": false` in `~/.claude/settings.json`. Native auto memory stays available but unused; the plugin does not depend on it.
@@ -122,7 +134,7 @@ Hermes `skills/` are skills, not memory: reported, not imported. Hermes root `ME
 
 ## Sync across machines
 
-Every write commits. Push runs detached after each write; pull runs once per session start. Both are best effort with caps and never block a turn. The bundle's remote is a private repo; `init --remote <url>` sets it, `doctor` nags when it is absent. Event driven, no cron.
+Every write's detached job commits and pushes. Pull runs detached once per session start. All best effort; none blocks a turn. The bundle's remote is a private repo; `init --remote <url>` sets it, `doctor` nags when it is absent. Event driven, no cron.
 
 ## What was missing from the ask
 

@@ -24,7 +24,7 @@ See the [domain model](../specs/memory-domain-model.md).
 |---------------|----------------------|--------------------------------------|
 | Concept | one file, one git commit | legal type for its directory; well-formed actor; no secret in text; slug from title; status transitions as drawn |
 
-Index regeneration and log append happen after the concept write in the same application-level operation; a crash between leaves a stale index that `check` detects and `index` repairs. Eventually consistent by design, no cross-file lock.
+Index regeneration, log append and git commit happen in a detached job after the concept write returns; a lost job leaves a stale index or an uncommitted file that `check` detects and the next write repairs. Eventually consistent by design: no turn waits on memory, no cross-file lock, and losing an occasional summary is accepted over waiting for one.
 
 ## Anti-corruption layer
 
@@ -36,7 +36,7 @@ An OKF v0.2 bundle at `~/.agents/memory`, a git repo. One npm package `@aeryx/me
 
 ## Consequences
 
-Easier: one format, one write path, every invariant in one constructor, cross-machine sync by git, any harness with a shell can participate. Harder: Claude's "Saved N memories" affordance is gone; Claude summaries depend on `claude -p` running inside a hook; a rebase conflict on a concept needs a human. Deferred: Codex and opencode adapters, semantic search, consolidation, an MCP surface; revisit each when it is scheduled, not before.
+Easier: one format, one write path, every invariant in one constructor, cross-machine sync by git, any harness with a shell can participate, and no model call or network wait on any turn. Harder: Claude's "Saved N memories" affordance is gone; Claude summaries depend on `claude -p` running inside a hook; a rebase conflict on a concept needs a human. Deferred: Codex and opencode adapters, semantic search, consolidation, an MCP surface; revisit each when it is scheduled, not before.
 
 ## Alternatives considered
 
