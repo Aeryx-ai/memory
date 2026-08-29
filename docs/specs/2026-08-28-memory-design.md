@@ -73,14 +73,29 @@ The three extensions being replaced are slow for the same reasons: model calls o
 
 ## Running summary
 
-Each session keeps one Session Summary concept current in the background, so compaction and exit have nothing left to compute.
+Each session keeps one Session Summary concept current in the background, so compaction and exit have nothing left to compute. The body has two conventional headings, and a fold never re-summarizes a summary:
 
-- Trigger: after each turn (pi `agent_settled`, Claude Code `Stop` with `async: true`) the adapter runs `memory fold --session <resource> --transcript <path>`, which compares transcript bytes against the session's checkpoint under `<bundle>/.state/` (gitignored). Below the threshold it exits at once. At or above it, it spawns a detached job and exits.
-- Fold job: single-flight per session (lock held means skip). Reads only the transcript delta since the checkpoint plus the current summary, pipes both through the summarizer (`claude -p` on haiku, `pi -p` on `settings["memory"].summaryModel`) with a fixed prompt (goal, decisions, rejected approaches, open items, files touched), revises the concept in place, advances the checkpoint. One small call per ~8k tokens of new transcript, never on a turn.
-- Threshold below the harness's kept-recent window (pi `keepRecentTokens` 20k, so 8k default), which guarantees the unfolded tail is still inside the messages compaction keeps verbatim. The summary plus the kept messages cover the whole session with no synchronous fold.
-- pi compaction: `session_before_compact` returns `{ summary: <running summary>, firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore }`. No model call; compaction is a file read. `/compact <instructions>` falls through to pi's own compaction when instructions are given.
+```markdown
+# Reflections
+[b2c3d4e5f6a1] Hard constraint: memory writes never block a turn.
+
+# Observations
+[d4e5f6a1b2c3] 2026-08-29 10:53 [high] User chose OKF v0.2 over a custom format; wants OKF terms verbatim.
+[e5f6a1b2c3d4] 2026-08-29 11:02 [medium] Adopted append-only observations plus distilled reflections for Session Summaries.
+```
+
+- Observations: append-only, timestamped, 12-hex id, relevance `low|medium|high|critical`, and the source entry ids they came from (kept in the concept's `sources[]`, one entry per observation id, `resource` the transcript entry ids). Never rewritten.
+- Reflections: durable facts distilled from observations, each carrying the observation ids that support it. Revised only when the observation pool crosses its size.
+- Pruning is mechanical: past `observationsMaxTokens` (20k default) drop observations covered by a reflection first, then lowest relevance oldest first, to `observationsTargetTokens` (10k). No model.
+- Trigger: after each turn (pi `agent_settled`, Claude Code `Stop` with `async: true`) the adapter runs `memory fold --session <resource> --transcript <path>`, which compares transcript bytes against the session's checkpoint under `<bundle>/.state/` (gitignored). Below `observeAfterTokens` (8k) it exits at once. At or above it, it spawns a detached job and exits.
+- Fold job: single-flight per session (lock held means skip). Reads only the transcript delta since the checkpoint, sends it with the current reflections and recent observations through the summarizer (`claude -p` on haiku, `pi -p` on `settings["memory"].summaryModel`) with a fixed observer prompt, appends the returned observations, advances the checkpoint. When observations since the last reflection exceed `reflectAfterTokens` (20k) the same job runs the reflector prompt once and rewrites the Reflections section. Two prompts, both on a delta, never on a turn.
+- `observeAfterTokens` sits below the harness's kept-recent window (pi `keepRecentTokens` 20k), which guarantees the unfolded tail is still inside the messages compaction keeps verbatim. Summary plus kept messages cover the whole session with no synchronous fold.
+- pi compaction: `session_before_compact` returns `{ summary: <rendered Reflections and Observations>, firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore }`. No model call; compaction is a file read. `/compact <instructions>` falls through to pi's own compaction when instructions are given.
 - Claude Code compaction: native compaction cannot be replaced. `PreCompact` returns `compactionInstructions` that point at the running summary and ask the native pass to cover only the recent turns; `SessionStart` with trigger `compact` injects the running summary first, so post-compaction context is ours regardless of what native compaction kept.
+- Recall: `memory recall-observation <id>` returns the source transcript entries behind an observation or reflection, from the pi session file or the Claude transcript named in the concept's `sources[]`. Exposed as a tool in pi and through the skill in Claude Code.
 - Exit: `session_shutdown` and `SessionEnd` (1.5s budget) spawn a detached final fold with `--finalize`, which sets `status: stable`. Resume of the same session id reopens the same concept.
+
+Rendering into `context` uses the same two sections, reflections first. A migrated pi-memory daily log has observations only.
 
 ## Package
 
@@ -98,7 +113,8 @@ Agent-facing: JSON to stdout by default, `--md` for markdown, exit codes the cal
 | `deprecate <slug\|path>` / `restore <slug\|path>` | rewrite status and return; index, log, commit in the detached job |
 | `recall [--type T] [--cwd] [--deprecated] [query]` | term match over title, description, tags, body, ranked; root plus project by default |
 | `show <slug\|path>` | one concept, frontmatter and body |
-| `fold --session R --actor A --transcript PATH [--cwd] [--threshold tokens] [--finalize] [--summarize-cmd CMD]` | checkpoint compare; below threshold exit 0; else detach a job that folds the delta into the session's Session Summary through CMD; `--finalize` folds whatever is left and marks it `stable` |
+| `fold --session R --actor A --transcript PATH [--cwd] [--finalize] [--summarize-cmd CMD]` | checkpoint compare; below `observeAfterTokens` exit 0; else detach a job that appends observations from the delta, reflects when due, prunes, advances the checkpoint; `--finalize` folds whatever is left and marks it `stable` |
+| `recall-observation <id>` | the source transcript entries behind one observation or reflection id |
 | `summarize --session R --actor A [--cwd]` | body on stdin becomes the session's Session Summary verbatim (pi compaction summaries, migration) |
 | `context [--cwd] [--session R] [--summaries 3] [--budget bytes]` | the bytes a harness injects: root index, project index, latest N Session Summary bodies, the current session's own summary first when `--session` is given; deterministic for the same bundle state so prefix caches hold |
 | `index` | regenerate every `index.md` |
@@ -115,7 +131,7 @@ Registered by the package's `pi.extensions` entry.
 
 - `session_start`: spawn detached `memory sync --pull`; snapshot `memory context` from local state at once.
 - `before_agent_start`: append the snapshot inside `<memory-context bundle=… project=…>` plus a two-line note naming the tools. The snapshot refreshes only after a memory tool writes, after compaction, and on day rollover, so the prefix stays byte-stable between.
-- Tools `memory_remember`, `memory_recall`, `memory_deprecate`, `memory_summarize`, actor `pi/<model id>`.
+- Tools `memory_remember`, `memory_recall`, `memory_deprecate`, `memory_recall_observation`, actor `pi/<model id>`.
 - `agent_settled`: `memory fold` with the session file as transcript; returns in milliseconds, folds detach.
 - `session_before_compact`: return the running summary as the compaction result; no model call.
 - `session_shutdown`: `memory fold --finalize`, detached; quit does not wait. `MEMORY_FOLD=off` disables folding entirely.
@@ -130,7 +146,7 @@ Registered by the package's `pi.extensions` entry.
 - `PreCompact`: emit `compactionInstructions` naming the running summary and limiting the native pass to recent turns.
 - `SessionStart` with trigger `compact`: `memory context --session <id>` so the running summary leads the post-compaction context.
 - `SessionEnd`: `memory fold --finalize`, detached, inside the 1.5s budget.
-- Skill `memory`: the four-kind guidance the harness uses today, restated against the CLI, with the placement rules.
+- Skill `memory`: the four-kind guidance the harness uses today, restated against the CLI, with the placement rules and `recall-observation` for expanding a summary line.
 - Command `/memory`: doctor, recall.
 - README: set `"autoMemoryEnabled": false` in `~/.claude/settings.json`. Native auto memory stays available but unused; the plugin does not depend on it.
 
@@ -161,6 +177,7 @@ Every write's detached job commits and pushes. Pull runs detached once per sessi
 - Retirement: uninstall the three pi packages, turn off Claude auto memory, leave legacy dirs in place until the migration report is clean.
 - `~/.agents/AGENTS.md` pointer so a harness with no adapter (Codex, opencode) can still use the CLI.
 - Session Summary retention: keep forever, inject the latest three. Revisit if a project directory grows past a few hundred.
+- Fold settings: `observeAfterTokens` 8k, `reflectAfterTokens` 20k, `observationsMaxTokens` 20k, `observationsTargetTokens` 10k, `summaryModel`. Same knobs OM exposed, same defaults except the observe threshold, which must stay under the kept window.
 - Fold state (`.state/`) is per machine and gitignored; a session resumed on another machine starts a fresh checkpoint against the same concept.
 - Subagents get no context injection; a pi subagent or Claude subagent that needs memory calls `memory recall`.
 

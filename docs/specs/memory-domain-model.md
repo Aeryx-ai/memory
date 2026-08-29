@@ -131,6 +131,8 @@ Anything not drawn is refused. `deprecated` concepts leave the index and the con
 | `Source` | has-a (owned) | 1 to n, n ≥ 0 |
 | `Actor` | has-a (value) | 1 to 1 in `generated`, 1 to n in `verified` |
 | `Concept` | references (markdown link) | n to n; a broken link is tolerated, per OKF |
+| `Observation` | has-a (owned), `Session Summary` only | 1 to n, n ≥ 0 |
+| `Reflection` | has-a (owned), `Session Summary` only | 1 to n, n ≥ 0 |
 
 ## Index
 
@@ -184,6 +186,45 @@ Value object, derived, never stored. What a harness injects at session start.
 
 - Deterministic for the same bundle state and arguments, so a harness prefix cache holds.
 - Contains no instructions; adapters add their own usage note outside the block.
+
+## Observation
+
+Value object, owned by a `Session Summary` concept, one line under `# Observations`. Append-only.
+
+### Fields
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | 12 hex chars | identity within the concept; the recall key |
+| `at` | instant | when the observed thing happened, minute precision |
+| `relevance` | `Relevance` | prune order |
+| `content` | one line | what happened or was established |
+| `sourceEntryIds` | list of string | transcript entry ids it came from; n ≥ 1 |
+
+### Invariants
+
+- Never rewritten after append; pruning removes whole lines.
+- `sourceEntryIds` resolve against the transcript named in the concept's `sources[]`.
+
+## Reflection
+
+Value object, owned by a `Session Summary` concept, one line under `# Reflections`.
+
+### Fields
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | 12 hex chars | identity within the concept; the recall key |
+| `content` | one line | a durable fact about the user, project, decision or constraint |
+| `supportingObservationIds` | list of string | observations whose durable meaning it preserves; n ≥ 1; the pruner treats these as covered |
+
+### Invariants
+
+- Rewritten only by a reflector pass; a pass replaces the whole section.
+
+## Relevance
+
+Enumeration: `low`, `medium`, `high`, `critical`. Prune order ascending.
 
 ## FoldCheckpoint
 
@@ -262,7 +303,7 @@ Enumeration. OKF `type` values this bundle produces.
 | `Feedback` | corrections given and approaches confirmed | root, project |
 | `Project` | ongoing work, decisions and constraints not derivable from the code | project |
 | `Reference` | pointers to external resources | root, project |
-| `Session Summary` | one session, folded in the background while it lives; or one migrated day | root, project |
+| `Session Summary` | one session: append-only observations plus distilled reflections, folded in the background while it lives; or one migrated day | root, project |
 
 ## Status
 
@@ -286,6 +327,9 @@ erDiagram
     CONTEXT_RENDER }o--|| INDEX : "root"
     CONTEXT_RENDER }o--|| INDEX : "project"
     CONTEXT_RENDER }o--o{ CONCEPT : "latest summaries"
+    CONCEPT ||--o{ OBSERVATION : "Session Summary owns"
+    CONCEPT ||--o{ REFLECTION : "Session Summary owns"
+    REFLECTION }o--|{ OBSERVATION : "supported by"
 ```
 
 ```mermaid
