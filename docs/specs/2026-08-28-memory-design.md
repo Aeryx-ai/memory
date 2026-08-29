@@ -2,7 +2,7 @@
 
 Status: draft (design approved 2026-08-28, pending spec review). Supersedes the memory half of pi-extensions' `docs/specs/2026-07-19-pi-memory-and-profiles-design.md`.
 
-Companion artifacts: [context map](memory-context-map.md), [domain model](memory-domain-model.md), [ADR 3](../adr/0003-adopt-okf-for-shared-agent-memory.md).
+Companion artifacts: [context map](memory-context-map.md), [domain model](memory-domain-model.md), [ADR 1](../adr/0001-adopt-okf-for-shared-agent-memory.md).
 
 ## Goal
 

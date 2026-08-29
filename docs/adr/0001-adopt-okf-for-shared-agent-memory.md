@@ -1,10 +1,8 @@
-# 3. Adopt OKF for shared agent memory, CLI as the only writer
+# 1. Adopt OKF for shared agent memory, CLI as the only writer
 
 - **Status:** Proposed
 - **Date:** 2026-08-28
 - **Change size:** large (DDD applied)
-
-Numbered 3 to follow pi-extensions' ADRs 1 and 2, which this repo's memory work grew out of.
 
 ## Context
 

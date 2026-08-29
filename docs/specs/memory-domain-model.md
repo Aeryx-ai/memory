@@ -82,7 +82,7 @@ Entity, aggregate root. One OKF concept document. One concept per git commit is 
 
 | Field | Type | Meaning |
 |---|---|---|
-| `path` | bundle-relative path | identity; `<directory>/<type dir>/<slug>.md`, slug derived from `title` |
+| `path` | bundle-relative path | identity; `<directory>/<type dir>/<slug>.md`, slug derived from `title`; a Session Summary's slug is its `generated.at` stamp plus actor, so two harnesses summarizing at once never collide |
 | `type` | `ConceptType` | OKF `type` |
 | `title` | string | non-empty; the slug source |
 | `description` | string | one sentence for index entries and recall snippets |
