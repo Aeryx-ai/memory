@@ -177,13 +177,33 @@ Value object, derived, never stored. What a harness injects at session start.
 |---|---|---|
 | `rootIndex` | `Index` | |
 | `projectIndex` | `Index` | for the resolved project; an empty index when the project directory does not exist yet |
-| `summaries` | list of `Concept` | latest N Session Summaries for the project, N given by the caller |
+| `summaries` | list of `Concept` | latest N Session Summaries for the project, N given by the caller; the current session's own summary first when a session resource is given |
 | `budget` | bytes | 0..1; absent means no cap; when present, summaries are dropped oldest first, then truncated |
 
 ### Invariants
 
 - Deterministic for the same bundle state and arguments, so a harness prefix cache holds.
 - Contains no instructions; adapters add their own usage note outside the block.
+
+## FoldCheckpoint
+
+Value object, per session, stored under `<bundle>/.state/<session slug>.json`, gitignored, machine local.
+
+### Fields
+
+| Field | Type | Meaning |
+|---|---|---|
+| `session` | string | the session resource, same value as the summary's `sources[].resource` |
+| `transcriptBytes` | integer | bytes of the transcript already folded |
+| `foldedAt` | instant | when the last fold finished |
+
+### Behaviors
+
+`Due(transcriptSize, threshold)`, `Advance(bytes)`.
+
+### Invariants
+
+- `transcriptBytes` never decreases; a transcript shorter than the checkpoint (a new file for the same session) resets it to zero.
 
 ## ProjectId
 
@@ -242,7 +262,7 @@ Enumeration. OKF `type` values this bundle produces.
 | `Feedback` | corrections given and approaches confirmed | root, project |
 | `Project` | ongoing work, decisions and constraints not derivable from the code | project |
 | `Reference` | pointers to external resources | root, project |
-| `Session Summary` | one compaction, exit or migrated day | root, project |
+| `Session Summary` | one session, folded in the background while it lives; or one migrated day | root, project |
 
 ## Status
 

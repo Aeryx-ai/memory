@@ -57,7 +57,7 @@ The CLI is the only writer. It refuses (nothing written, exit 3) a type outside 
 
 `index.md` per directory is generated from frontmatter, grouped by type in OKF §8 form, never hand-edited. `log.md` per directory is appended in OKF §9 form (`## YYYY-MM-DD`, `* **Creation**` / `**Update**` / `**Deprecation**`).
 
-A Session Summary is a concept of type `Session Summary`: one file per compaction, exit, or migrated daily-log day, `generated.by` the harness actor, `sources[].resource` the session id. One file per event means concurrent sessions never contend on a shared file.
+A Session Summary is a concept of type `Session Summary`: one per session (or per migrated daily-log day), `generated.by` the harness actor, `sources[].resource` the session id. It is `draft` while the session lives and revised in place by background folds, `stable` once the session ends. One file per session means concurrent sessions never contend on a shared file.
 
 ## Speed
 
@@ -67,9 +67,20 @@ The three extensions being replaced are slow for the same reasons: model calls o
 - Write path: `remember` writes one file temp-then-rename and returns. Budget 30ms. Index regeneration, log append, git commit and push run in one detached background process spawned by the write; the caller never waits.
 - Concurrency: concept writes never lock; each is its own file, and two writers to the same slug are last-writer-wins, no merge. Only git operations take the lock, and a background job that finds it held exits instead of waiting: the next write's job commits everything pending with `git add -A`.
 - Drop policy: a lost background job means a stale index or an uncommitted concept, never a corrupt file. `check` finds it; the next write or `index` repairs it. Memory is not a ledger; losing one summary is acceptable, waiting on one is not.
-- Model calls happen at exactly two points, compaction and exit, and both run detached (`pi -p` or `claude -p` on a cheap model) so the harness never waits for them. Nothing runs on a timer, nothing observes turns.
+- Model calls happen only in background folds of the running summary (below), each over a small transcript delta on a cheap model, detached, so the harness never waits for them. Nothing runs on a timer.
 - Session start: pull runs detached; the context snapshot is taken from local state immediately. A pull that lands mid-session shows up next session.
 - Prefix cache: the injected block is byte-stable within a session except after a memory tool write or a compaction.
+
+## Running summary
+
+Each session keeps one Session Summary concept current in the background, so compaction and exit have nothing left to compute.
+
+- Trigger: after each turn (pi `agent_settled`, Claude Code `Stop` with `async: true`) the adapter runs `memory fold --session <resource> --transcript <path>`, which compares transcript bytes against the session's checkpoint under `<bundle>/.state/` (gitignored). Below the threshold it exits at once. At or above it, it spawns a detached job and exits.
+- Fold job: single-flight per session (lock held means skip). Reads only the transcript delta since the checkpoint plus the current summary, pipes both through the summarizer (`claude -p` on haiku, `pi -p` on `settings["memory"].summaryModel`) with a fixed prompt (goal, decisions, rejected approaches, open items, files touched), revises the concept in place, advances the checkpoint. One small call per ~8k tokens of new transcript, never on a turn.
+- Threshold below the harness's kept-recent window (pi `keepRecentTokens` 20k, so 8k default), which guarantees the unfolded tail is still inside the messages compaction keeps verbatim. The summary plus the kept messages cover the whole session with no synchronous fold.
+- pi compaction: `session_before_compact` returns `{ summary: <running summary>, firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore }`. No model call; compaction is a file read. `/compact <instructions>` falls through to pi's own compaction when instructions are given.
+- Claude Code compaction: native compaction cannot be replaced. `PreCompact` returns `compactionInstructions` that point at the running summary and ask the native pass to cover only the recent turns; `SessionStart` with trigger `compact` injects the running summary first, so post-compaction context is ours regardless of what native compaction kept.
+- Exit: `session_shutdown` and `SessionEnd` (1.5s budget) spawn a detached final fold with `--finalize`, which sets `status: stable`. Resume of the same session id reopens the same concept.
 
 ## Package
 
@@ -87,8 +98,9 @@ Agent-facing: JSON to stdout by default, `--md` for markdown, exit codes the cal
 | `deprecate <slug\|path>` / `restore <slug\|path>` | rewrite status and return; index, log, commit in the detached job |
 | `recall [--type T] [--cwd] [--deprecated] [query]` | term match over title, description, tags, body, ranked; root plus project by default |
 | `show <slug\|path>` | one concept, frontmatter and body |
-| `summarize --actor A --source R [--cwd] [--summarize-cmd CMD]` | body on stdin (or stdin piped through CMD, which must print the summary); writes a Session Summary |
-| `context [--cwd] [--summaries 3] [--budget bytes]` | the bytes a harness injects: root index, project index, latest N Session Summary bodies; deterministic for the same bundle state so prefix caches hold |
+| `fold --session R --actor A --transcript PATH [--cwd] [--threshold tokens] [--finalize] [--summarize-cmd CMD]` | checkpoint compare; below threshold exit 0; else detach a job that folds the delta into the session's Session Summary through CMD; `--finalize` folds whatever is left and marks it `stable` |
+| `summarize --session R --actor A [--cwd]` | body on stdin becomes the session's Session Summary verbatim (pi compaction summaries, migration) |
+| `context [--cwd] [--session R] [--summaries 3] [--budget bytes]` | the bytes a harness injects: root index, project index, latest N Session Summary bodies, the current session's own summary first when `--session` is given; deterministic for the same bundle state so prefix caches hold |
 | `index` | regenerate every `index.md` |
 | `check` | every non-reserved `.md` parses, `type` legal for its directory, no secrets, every index matches regeneration; exit 4 on any failure |
 | `sync [--pull\|--push]` | commit pending, `pull --rebase`, regen index if the pull changed anything, push; exits at once if the lock is held |
@@ -104,8 +116,9 @@ Registered by the package's `pi.extensions` entry.
 - `session_start`: spawn detached `memory sync --pull`; snapshot `memory context` from local state at once.
 - `before_agent_start`: append the snapshot inside `<memory-context bundle=… project=…>` plus a two-line note naming the tools. The snapshot refreshes only after a memory tool writes, after compaction, and on day rollover, so the prefix stays byte-stable between.
 - Tools `memory_remember`, `memory_recall`, `memory_deprecate`, `memory_summarize`, actor `pi/<model id>`.
-- `session_compact`: pi's compaction summary becomes a Session Summary, no extra model call.
-- `session_shutdown`: write the transcript tail to a temp file and spawn detached `pi -p --model <settings["memory"].summaryModel>` piped into `memory summarize`; quit does not wait. `MEMORY_EXIT_SUMMARY=off` disables.
+- `agent_settled`: `memory fold` with the session file as transcript; returns in milliseconds, folds detach.
+- `session_before_compact`: return the running summary as the compaction result; no model call.
+- `session_shutdown`: `memory fold --finalize`, detached; quit does not wait. `MEMORY_FOLD=off` disables folding entirely.
 - Commands `/memory` (doctor), `/memory recall <q>`, `/memory sync`.
 
 ## Claude Code plugin
@@ -113,7 +126,10 @@ Registered by the package's `pi.extensions` entry.
 `claude-plugin/` in the memory repo. Requires `npm i -g @aeryx/memory`; `doctor` says so when the binary is missing.
 
 - `SessionStart` (startup, resume, clear, compact): spawn detached `memory sync --pull`, print `memory context --md` as `additionalContext`, followed by the usage note (remember with `memory remember …` through Bash, recall with `memory recall`).
-- `PreCompact` and `SessionEnd`: hook script extracts the transcript tail from `transcript_path` and spawns a detached job that pipes it through `claude -p --model claude-haiku-4-5-20251001 <prompt>` into `memory summarize --actor claude-code/<model> --source claude-code:session/<id>`, and exits. Same OAuth, no key, the hook returns in milliseconds. Whether a detached `claude -p` completes after the hook exits is the first thing the plan verifies.
+- `Stop` (`async: true`): `memory fold --session claude-code:session/<id> --transcript <transcript_path> --summarize-cmd "claude -p --model claude-haiku-4-5-20251001"`. Same OAuth, no key. Whether a detached `claude -p` completes after the hook exits is the first thing the plan verifies.
+- `PreCompact`: emit `compactionInstructions` naming the running summary and limiting the native pass to recent turns.
+- `SessionStart` with trigger `compact`: `memory context --session <id>` so the running summary leads the post-compaction context.
+- `SessionEnd`: `memory fold --finalize`, detached, inside the 1.5s budget.
 - Skill `memory`: the four-kind guidance the harness uses today, restated against the CLI, with the placement rules.
 - Command `/memory`: doctor, recall.
 - README: set `"autoMemoryEnabled": false` in `~/.claude/settings.json`. Native auto memory stays available but unused; the plugin does not depend on it.
@@ -145,6 +161,7 @@ Every write's detached job commits and pushes. Pull runs detached once per sessi
 - Retirement: uninstall the three pi packages, turn off Claude auto memory, leave legacy dirs in place until the migration report is clean.
 - `~/.agents/AGENTS.md` pointer so a harness with no adapter (Codex, opencode) can still use the CLI.
 - Session Summary retention: keep forever, inject the latest three. Revisit if a project directory grows past a few hundred.
+- Fold state (`.state/`) is per machine and gitignored; a session resumed on another machine starts a fresh checkpoint against the same concept.
 - Subagents get no context injection; a pi subagent or Claude subagent that needs memory calls `memory recall`.
 
 ## Tests

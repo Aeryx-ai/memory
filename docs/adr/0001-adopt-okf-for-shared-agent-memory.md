@@ -36,7 +36,7 @@ An OKF v0.2 bundle at `~/.agents/memory`, a git repo. One npm package `@aeryx/me
 
 ## Consequences
 
-Easier: one format, one write path, every invariant in one constructor, cross-machine sync by git, any harness with a shell can participate, and no model call or network wait on any turn. Harder: Claude's "Saved N memories" affordance is gone; Claude summaries depend on `claude -p` running inside a hook; a rebase conflict on a concept needs a human. Deferred: Codex and opencode adapters, semantic search, consolidation, an MCP surface; revisit each when it is scheduled, not before.
+Easier: one format, one write path, every invariant in one constructor, cross-machine sync by git, any harness with a shell can participate, and no model call or network wait on any turn. Session summaries are folded incrementally in the background, so pi compaction becomes a file read and Claude Code compaction, which cannot be replaced, is followed by re-injecting our summary. Harder: Claude's "Saved N memories" affordance is gone; folds depend on `claude -p` completing after a hook exits; a rebase conflict on a concept needs a human. Deferred: Codex and opencode adapters, semantic search, consolidation, an MCP surface; revisit each when it is scheduled, not before.
 
 ## Alternatives considered
 
