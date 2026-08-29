@@ -61,7 +61,7 @@ A Session Summary is a concept of type `Session Summary`: one file per compactio
 
 ## Package
 
-Repo `github.com/aeryxai/memory` (org to be created; the handle does not exist on GitHub yet), checked out at `~/projects/memory`. The repo root is the npm package `@aeryx/memory`: library, the `memory` CLI (`bin`) and the pi extension (`pi.extensions`) in one package, so lib and CLI can never drift apart. `claude-plugin/` in the same repo is the Claude Code plugin, with a `.claude-plugin/marketplace.json` at the repo root so `claude plugin marketplace add aeryxai/memory` installs it; the guygrigsby marketplace can point at it too. `pi-extensions/claude-memory` is deleted once this ships. Dependencies: `yaml` for frontmatter, `git` on PATH. No database, no daemon.
+Repo `github.com/aeryx-ai/memory` (org to be created; the handle does not exist on GitHub yet), checked out at `~/projects/memory`. The repo root is the npm package `@aeryx/memory`: library, the `memory` CLI (`bin`) and the pi extension (`pi.extensions`) in one package, so lib and CLI can never drift apart. `claude-plugin/` in the same repo is the Claude Code plugin, with a `.claude-plugin/marketplace.json` at the repo root so `claude plugin marketplace add aeryx-ai/memory` installs it; the guygrigsby marketplace can point at it too. `pi-extensions/claude-memory` is deleted once this ships. Dependencies: `yaml` for frontmatter, `git` on PATH. No database, no daemon.
 
 ## CLI contract
 

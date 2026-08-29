@@ -32,7 +32,7 @@ The `memory` CLI and library are the only writers. The pi extension translates p
 
 ## Decision
 
-An OKF v0.2 bundle at `~/.agents/memory`, a git repo. One npm package `@aeryx/memory` at `github.com/aeryxai/memory` holds library, CLI and pi extension; the Claude plugin lives in the same repo and shells out. Claude's native auto memory is turned off rather than redirected. Phasing: ship the CLI and migration, run migration and verify with `check`, ship the pi extension and uninstall the three, ship the Claude plugin and disable auto memory, delete `pi-extensions/claude-memory`.
+An OKF v0.2 bundle at `~/.agents/memory`, a git repo. One npm package `@aeryx/memory` at `github.com/aeryx-ai/memory` holds library, CLI and pi extension; the Claude plugin lives in the same repo and shells out. Claude's native auto memory is turned off rather than redirected. Phasing: ship the CLI and migration, run migration and verify with `check`, ship the pi extension and uninstall the three, ship the Claude plugin and disable auto memory, delete `pi-extensions/claude-memory`.
 
 ## Consequences
 
