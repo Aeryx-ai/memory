@@ -64,7 +64,7 @@ A Session Summary is a concept of type `Session Summary`: one per session (or pe
 The three extensions being replaced are slow for the same reasons: model calls on the hot path (observer and reflector passes, background reviews every N turns, a blocking exit summary), a search index rebuilt after every write, and per-turn context rebuilds that bust the prefix cache. This design has none of them.
 
 - Read path: `context` reads two `index.md` files and N summary files already on disk. No model, no database, no network. Budget 20ms.
-- Write path: `remember` writes one file temp-then-rename and returns. Budget 30ms. Index regeneration, log append, git commit and push run in one detached background process spawned by the write; the caller never waits.
+- Write path: `remember` writes one file temp-then-rename, appends one line to `log.md` and returns. Budget 30ms. Index regeneration, git commit and push run in one detached background process spawned by the write; the caller never waits.
 - Concurrency: concept writes never lock; each is its own file, and two writers to the same slug are last-writer-wins, no merge. Only git operations take the lock, and a background job that finds it held exits instead of waiting: the next write's job commits everything pending with `git add -A`.
 - Drop policy: a lost background job means a stale index or an uncommitted concept, never a corrupt file. `check` finds it; the next write or `index` repairs it. Memory is not a ledger; losing one summary is acceptable, waiting on one is not.
 - Model calls happen only in background folds of the running summary (below), each over a small transcript delta on a cheap model, detached, so the harness never waits for them. Nothing runs on a timer.
