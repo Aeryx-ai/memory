@@ -1,0 +1,29 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { readSettings, contextBlock, compactionFromSummary, summarizeCmd } from "../extensions/pi-core.mjs";
+import { createConcept } from "../src/concept.mjs";
+import { tmpBundle, tmpDir } from "./helpers.mjs";
+test("settings merge project over global", () => {
+  const agent = tmpDir(), cwd = tmpDir();
+  fs.writeFileSync(path.join(agent, "settings.json"), JSON.stringify({ memory: { summaryModel: "deepseek/deepseek-v4-flash", observeAfterTokens: 4000 } }));
+  fs.mkdirSync(path.join(cwd, ".pi")); fs.writeFileSync(path.join(cwd, ".pi", "settings.json"), JSON.stringify({ memory: { observeAfterTokens: 6000 } }));
+  assert.deepEqual(readSettings(agent, cwd), { summaryModel: "deepseek/deepseek-v4-flash", observeAfterTokens: 6000 });
+});
+test("context block wraps renderContext and names the tools", () => {
+  const b = tmpBundle();
+  const text = contextBlock(b, b.root, "pi:session/x");
+  assert.match(text, /<memory-context/); assert.match(text, /memory_remember/);
+});
+test("compaction from summary uses the session's Session Summary or returns null", () => {
+  const b = tmpBundle(); const dir = b.dir("local/x");
+  assert.equal(compactionFromSummary(b, "local/x", "pi:session/s", { firstKeptEntryId: "k", tokensBefore: 100 }), null);
+  b.writeConcept(b.conceptRel(dir, "Session Summary", "s"), createConcept({ type: "Session Summary", title: "s", actor: "pi/m", at: "2026-08-29T00:00:00Z", sources: [{ resource: "pi:session/s" }], body: "# Reflections\n[aaaaaaaaaaaa] fact\n\n# Observations\n" }));
+  const r = compactionFromSummary(b, "local/x", "pi:session/s", { firstKeptEntryId: "k", tokensBefore: 100 });
+  assert.equal(r.firstKeptEntryId, "k"); assert.match(r.summary, /fact/); assert.match(r.summary, /recall-observation|memory_recall_observation/);
+});
+test("summarize command prefers the configured model", () => {
+  assert.match(summarizeCmd({ summaryModel: "a/b" }, { provider: "x", id: "y" }), /--model a\/b/);
+  assert.match(summarizeCmd({}, { provider: "x", id: "y" }), /--model x\/y/);
+});

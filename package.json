@@ -12,7 +12,7 @@
   "scripts": { "test": "node --test test/*.test.mjs" },
   "keywords": ["pi-package", "pi", "extension", "memory", "okf", "claude-code"],
   "pi": { "extensions": ["./extensions/pi.ts"] },
-  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
-  "peerDependenciesMeta": { "@earendil-works/pi-coding-agent": { "optional": true } },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "typebox": "*" },
+  "peerDependenciesMeta": { "@earendil-works/pi-coding-agent": { "optional": true }, "typebox": { "optional": true } },
   "dependencies": { "yaml": "^2.9.0" }
 }
