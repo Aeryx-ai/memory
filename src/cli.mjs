@@ -10,6 +10,10 @@ import { writeIndex } from "./index-file.mjs";
 import { appendLog } from "./log-file.mjs";
 import { afterWrite } from "./jobs.mjs";
 import { withLock, commitAll, sync } from "./git.mjs";
+import { renderContext } from "./context.mjs";
+import { recall } from "./recall.mjs";
+import { check } from "./check.mjs";
+import { doctor } from "./doctor.mjs";
 
 const GLOBAL = { dir: { type: "string" }, cwd: { type: "string" }, actor: { type: "string" }, md: { type: "boolean" }, root: { type: "boolean" }, "stdin-text": { type: "string" } };
 const COMMANDS = {
@@ -17,6 +21,9 @@ const COMMANDS = {
   "project-id": {},
   remember: { type: { type: "string" }, title: { type: "string" }, description: { type: "string" }, tags: { type: "string" }, source: { type: "string", multiple: true }, status: { type: "string" }, body: { type: "string" } },
   deprecate: {}, restore: {}, show: {},
+  context: { session: { type: "string" }, summaries: { type: "string" }, budget: { type: "string" } },
+  recall: { type: { type: "string" }, deprecated: { type: "boolean" } },
+  index: {}, check: {}, sync: { pull: { type: "boolean" }, push: { type: "boolean" } }, doctor: {},
   _job: { index: { type: "string" }, commit: { type: "string" } },
 };
 
@@ -113,6 +120,40 @@ const HANDLERS = {
   async show(ctx, v, [key]) {
     const { concept } = ctx.bundle.findConcept(targetDir(ctx, v), key ?? need(v, "key"));
     return ctx.md ? renderConcept(concept) : concept;
+  },
+  async context(ctx, v) {
+    requireBundle(ctx.bundle);
+    return renderContext(ctx.bundle, { projectId: projectIdFor(ctx.cwd), session: v.session, summaries: v.summaries ? Number(v.summaries) : 3, budget: v.budget ? Number(v.budget) : undefined });
+  },
+  async recall(ctx, v, words) {
+    requireBundle(ctx.bundle);
+    const hits = recall(ctx.bundle, { projectId: projectIdFor(ctx.cwd), type: v.type, query: words.join(" "), includeDeprecated: !!v.deprecated });
+    return ctx.md ? hits.map((h) => `* [${h.title}](${h.rel}) - ${h.description} (${h.type}, ${h.score})`).join("\n") + "\n" : hits;
+  },
+  async index(ctx) { requireBundle(ctx.bundle); const dirs = ctx.bundle.dirs(); for (const d of dirs) writeIndex(ctx.bundle, d); return { dirs: dirs.length }; },
+  async check(ctx) {
+    requireBundle(ctx.bundle);
+    const r = check(ctx.bundle);
+    if (!r.ok) { process.stdout.write(JSON.stringify(r) + "\n"); throw new MemoryError("check", `${r.problems.length} problems`); }
+    return r;
+  },
+  async sync(ctx, v) {
+    requireBundle(ctx.bundle);
+    const both = !v.pull && !v.push; let r = { skipped: true };
+    const ran = withLock(ctx.bundle.root, () => {
+      commitAll(ctx.bundle.root, "memory: sync");
+      r = sync(ctx.bundle.root, { pull: both || !!v.pull, push: both || !!v.push });
+      if (r.pulled) for (const d of ctx.bundle.dirs()) writeIndex(ctx.bundle, d);
+      if (r.pulled && commitAll(ctx.bundle.root, "memory: regenerate index after pull")) sync(ctx.bundle.root, { pull: false, push: both || !!v.push });
+    });
+    if (!ran) return { skipped: true };
+    if (r.conflict) throw new MemoryError("sync", "rebase conflict; resolve in the bundle by hand");
+    return r;
+  },
+  async doctor(ctx) {
+    const r = doctor(ctx.bundle, { home: process.env.HOME });
+    if (!r.ok) { process.stdout.write(JSON.stringify(r) + "\n"); throw new MemoryError("check", "doctor found failures"); }
+    return r;
   },
   async _job(ctx, v) {
     try { runJobInline(ctx.bundle, v.index ?? "", v.commit ?? "memory: update"); }

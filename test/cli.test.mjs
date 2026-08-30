@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { main } from "../src/cli.mjs";
-import { tmpBundle, tmpGitRepo } from "./helpers.mjs";
+import { tmpBundle, tmpGitRepo, tmpDir } from "./helpers.mjs";
 process.env.MEMORY_SYNC_INLINE = "1";
 async function run(args, { stdin = "" } = {}) {
   let out = "", err = "";
@@ -64,4 +64,58 @@ test("init is idempotent and sets the remote", async () => {
   let r = await run(["--dir", root, "init", "--remote", "git@github.com:guygrigsby/agent-memory.git"]);
   assert.deepEqual(r.json, { root });
   r = await run(["--dir", root, "init"]); assert.equal(r.code, 0);
+});
+test("context includes the project index", async () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const base = ["--dir", b.root, "--cwd", repo];
+  await run([...base, "remember", "--type", "Project", "--title", "Goal", "--description", "the goal"], { stdin: "x" });
+  const r = await run([...base, "context"]);
+  assert.equal(r.code, 0);
+  assert.match(r.out, /## Project github\.com\/a\/b\n# Project\n\n\* \[Goal\]\(project\/goal\.md\) - the goal\n/);
+});
+test("recall --md renders a markdown list", async () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const base = ["--dir", b.root, "--cwd", repo];
+  await run([...base, "remember", "--type", "Feedback", "--title", "Telegram rule", "--description", "reminders"], { stdin: "x" });
+  const r = await run([...base, "recall", "--md", "telegram"]);
+  assert.equal(r.code, 0);
+  assert.match(r.out, /^\* \[Telegram rule\]\(projects\/github\.com\/a\/b\/feedback\/telegram-rule\.md\) - reminders \(Feedback, 3\)\n$/);
+});
+test("check exit 4 after corrupting a directory index; index repairs it and check passes", async () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const base = ["--dir", b.root, "--cwd", repo];
+  await run([...base, "remember", "--type", "Feedback", "--title", "Rule"], { stdin: "x" });
+  let r = await run([...base, "check"]);
+  assert.equal(r.code, 0); assert.deepEqual(r.json, { ok: true, problems: [] });
+  fs.writeFileSync(path.join(b.root, "projects", "github.com", "a", "b", "index.md"), "stale\n");
+  r = await run([...base, "check"]);
+  assert.equal(r.code, 4);
+  assert.equal(r.json.ok, false);
+  assert.deepEqual(r.json.problems.map((p) => p.rel), ["projects/github.com/a/b/index.md"]);
+  r = await run([...base, "index"]);
+  assert.equal(r.code, 0);
+  assert.ok(r.json.dirs >= 2);
+  r = await run([...base, "check"]);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json, { ok: true, problems: [] });
+});
+test("sync without a remote reports no pull or push", async () => {
+  const b = tmpBundle();
+  const r = await run(["--dir", b.root, "sync"]);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json, { pulled: false, pushed: false, conflict: false });
+});
+test("doctor exit code with a temp HOME", async () => {
+  const b = tmpBundle();
+  const home = tmpDir("home-");
+  const prevHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const r = await run(["--dir", b.root, "doctor"]);
+    assert.equal(r.code, 0);
+    const msgs = r.json.findings.map((f) => f.message);
+    assert.ok(msgs.some((m) => m.startsWith("bundle ")));
+    assert.ok(msgs.includes("no git remote; memory stays on this machine (memory init --remote URL)"));
+    assert.ok(msgs.includes("check clean"));
+  } finally { process.env.HOME = prevHome; }
 });

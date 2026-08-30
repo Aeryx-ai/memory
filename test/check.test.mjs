@@ -1,0 +1,22 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { check } from "../src/check.mjs";
+import { createConcept } from "../src/concept.mjs";
+import { writeIndex } from "../src/index-file.mjs";
+import { tmpBundle } from "./helpers.mjs";
+test("check finds bad frontmatter, illegal placement, secrets and stale indexes", () => {
+  const b = tmpBundle(); const root = b.dir(null);
+  b.writeConcept(b.conceptRel(root, "Feedback", "ok"), createConcept({ type: "Feedback", title: "Ok", actor: "human:guy", at: "2026-08-01T00:00:00Z" }));
+  writeIndex(b, root);
+  assert.deepEqual(check(b), { ok: true, problems: [] });
+  fs.writeFileSync(path.join(b.root, "feedback", "bad.md"), "no frontmatter");
+  fs.mkdirSync(path.join(b.root, "project"), { recursive: true });
+  fs.writeFileSync(path.join(b.root, "project", "wrong.md"), "---\ntype: Project\ntitle: W\nstatus: stable\ngenerated: { by: human:guy, at: 2026-08-01T00:00:00Z }\n---\n");
+  fs.writeFileSync(path.join(b.root, "feedback", "leak.md"), "---\ntype: Feedback\ntitle: L\nstatus: stable\ngenerated: { by: human:guy, at: 2026-08-01T00:00:00Z }\n---\nAKIAIOSFODNN7EXAMPLE\n");
+  const r = check(b);
+  assert.equal(r.ok, false);
+  const rels = r.problems.map((p) => p.rel).sort();
+  assert.deepEqual(rels, ["feedback/bad.md", "feedback/leak.md", "project/wrong.md"]);
+});
