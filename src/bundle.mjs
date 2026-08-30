@@ -17,12 +17,12 @@ export class Bundle {
   constructor(root) { this.root = path.resolve(root); }
   abs(rel) { return path.join(this.root, rel); }
   exists() { return fs.existsSync(this.abs("index.md")); }
-  init({ remote } = {}) {
+  init({ remote, at } = {}) {
     fs.mkdirSync(this.root, { recursive: true });
     if (!fs.existsSync(this.abs(".gitignore"))) this.writeAtomic(".gitignore", ".state/\n.locks/\n");
     if (!fs.existsSync(this.abs("index.md"))) this.writeAtomic("index.md", ROOT_INDEX);
     if (!fs.existsSync(this.abs("log.md"))) {
-      const d = new Date().toISOString().slice(0, 10);
+      const d = (at ?? new Date().toISOString()).slice(0, 10);
       this.writeAtomic("log.md", `# Directory Update Log\n\n## ${d}\n* **Initialization**: Created the memory bundle.\n`);
     }
     if (!fs.existsSync(this.abs(".git"))) execFileSync("git", ["init", "-q", "-b", "main"], { cwd: this.root });
@@ -47,8 +47,11 @@ export class Bundle {
       if (names.some((n) => typeDirs.has(n)) || fs.existsSync(path.join(abs, "index.md"))) { out.push(this.dir(rel)); return; }
       for (const n of names) walk(path.join(abs, n), path.posix.join(rel, n));
     };
-    for (const n of fs.readdirSync(projects)) walk(path.join(projects, n), n);
-    return out;
+    for (const d of fs.readdirSync(projects, { withFileTypes: true })) {
+      if (d.isDirectory()) walk(path.join(projects, d.name), d.name);
+    }
+    // root's rel is "" so it sorts first alongside the rest; filesystem order is not guaranteed.
+    return out.sort((a, b) => a.rel.localeCompare(b.rel));
   }
   conceptRel(dir, type, slug) { return path.posix.join(dir.rel, dirForType(type), `${slug}.md`); }
   writeAtomic(rel, text) {
@@ -79,9 +82,13 @@ export class Bundle {
     return out.sort((a, b) => a.rel.localeCompare(b.rel));
   }
   findConcept(dir, key) {
-    const hit = this.listConcepts(dir).find((e) => e.rel === key || path.posix.relative(dir.rel, e.rel) === key || e.rel.endsWith(`/${key}.md`) || e.rel === `${key}.md`);
-    if (!hit) throw new MemoryError("notfound", `no concept ${key} in ${dir.rel || "bundle root"}`);
-    return hit;
+    const entries = this.listConcepts(dir);
+    const exact = entries.find((e) => e.rel === key || path.posix.relative(dir.rel, e.rel) === key);
+    if (exact) return exact;
+    const bare = entries.filter((e) => e.rel.endsWith(`/${key}.md`) || e.rel === `${key}.md`);
+    if (bare.length > 1) throw new MemoryError("refused", `ambiguous key ${key}: ${bare.map((e) => path.posix.relative(dir.rel, e.rel)).join(", ")}`);
+    if (bare.length === 1) return bare[0];
+    throw new MemoryError("notfound", `no concept ${key} in ${dir.rel || "bundle root"}`);
   }
   statePath(name) { fs.mkdirSync(this.abs(".state"), { recursive: true }); return this.abs(path.posix.join(".state", name)); }
 }

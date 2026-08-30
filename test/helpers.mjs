@@ -15,6 +15,6 @@ export function tmpGitRepo(origin) {
 export function tmpBundle() {
   const root = path.join(tmpDir("bundle-"), "memory");
   const b = new Bundle(root);
-  b.init({});
+  b.init({ at: "2020-01-01T00:00:00Z" });
   return b;
 }

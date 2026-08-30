@@ -33,6 +33,25 @@ test("dirs, concept paths, write and read", () => {
   assert.throws(() => b.findConcept(proj, "missing"), (e) => e.code === "notfound");
   assert.deepEqual(b.dirs().map((d) => d.rel), ["", "projects/github.com/a/b"]);
 });
+test("dirs skips non-directory entries under projects/ and sorts by rel", () => {
+  const b = tmpBundle();
+  fs.mkdirSync(path.join(b.root, "projects"), { recursive: true });
+  fs.writeFileSync(path.join(b.root, "projects", ".DS_Store"), "");
+  const c = createConcept({ type: "Project", title: "X", actor, at, body: "x\n" });
+  b.writeConcept(b.conceptRel(b.dir("b/two"), "Project", "x"), c);
+  b.writeConcept(b.conceptRel(b.dir("a/one"), "Project", "x"), c);
+  assert.deepEqual(b.dirs().map((d) => d.rel), ["", "projects/a/one", "projects/b/two"]);
+});
+test("findConcept: exact matches win, bare slug is refused when ambiguous", () => {
+  const b = tmpBundle();
+  const proj = b.dir("local/y");
+  const cf = createConcept({ type: "Feedback", title: "X", actor, at, body: "x\n" });
+  const cr = createConcept({ type: "Reference", title: "X", actor, at, body: "x\n" });
+  b.writeConcept(b.conceptRel(proj, "Feedback", "x"), cf);
+  b.writeConcept(b.conceptRel(proj, "Reference", "x"), cr);
+  assert.equal(b.findConcept(proj, "feedback/x.md").rel, "projects/local/y/feedback/x.md");
+  assert.throws(() => b.findConcept(proj, "x"), (e) => e.code === "refused" && e.message === "ambiguous key x: feedback/x.md, reference/x.md");
+});
 test("writeAtomic leaves no temp files and replaces content", () => {
   const b = tmpBundle();
   b.writeAtomic("feedback/a.md", "one"); b.writeAtomic("feedback/a.md", "two");
