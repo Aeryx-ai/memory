@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { migrate, decodeClaudeSlug } from "../src/migrate/index.mjs";
+import { fallbackLocalProjectId } from "../src/migrate/claude.mjs";
+import { splitEntries } from "../src/migrate/hermes.mjs";
 import { parseSummaryBody } from "../src/summary.mjs";
 import { tmpBundle, tmpDir } from "./helpers.mjs";
 process.env.MEMORY_SYNC_INLINE = "1";
@@ -22,6 +24,21 @@ test("decodeClaudeSlug tries joins left to right", () => {
   const exists = (p) => ["/Users", "/Users/g", "/Users/g/my-app"].includes(p);
   assert.equal(decodeClaudeSlug("-Users-g-my-app", exists), "/Users/g/my-app");
   assert.equal(decodeClaudeSlug("-Users-nope-x", exists), null);
+});
+test("fallbackLocalProjectId keeps the dash-joined tail past the user segment, not just the last word", () => {
+  assert.equal(fallbackLocalProjectId("-Users-guygrigsby-projects-Just-Next"), "local/Just-Next");
+  assert.equal(fallbackLocalProjectId("-Users-guygrigsby-projects-guygrigsby-talon"), "local/guygrigsby-talon");
+  assert.equal(fallbackLocalProjectId("-Users-guygrigsby--config-nvim"), "local/config-nvim");
+  // two distinct projects that used to collapse to the same fallback id no longer do
+  assert.notEqual(fallbackLocalProjectId("-Users-guygrigsby-projects-talon"), fallbackLocalProjectId("-Users-guygrigsby-projects-guygrigsby-talon"));
+});
+test("splitEntries strips the whole hermes comment even when it carries more than created/last", () => {
+  const text = "Rotate the key. <!-- created=2026-08-07, last=2026-08-09, project64=abcXYZ012 -->\n§\nPlain entry. <!-- created=2026-08-07, last=2026-08-07 -->";
+  const [first, second] = splitEntries(text);
+  assert.equal(first.content, "Rotate the key.");
+  assert.equal(first.created, "2026-08-07T00:00:00Z");
+  assert.equal(first.last, "2026-08-09T00:00:00Z");
+  assert.equal(second.content, "Plain entry.");
 });
 test("migrate all is idempotent and lands each store where the spec says", () => {
   const b = tmpBundle(); const { h, projects } = home();
@@ -62,4 +79,18 @@ test("dry run previews slug collisions the same way a real run would", () => {
   assert.ok(r.report.includes("create feedback/secrets-come-from-the-1password-cache-never-op-read-directly.md"));
   assert.ok(r.report.includes("create feedback/secrets-come-from-the-1password-cache-never-op-read-directly-2.md"));
   assert.equal(b.listConcepts(b.dir(null)).length, 0);
+});
+test("migrate does not commit outside the git lock: a held lock returns committed: false instead of throwing or racing", () => {
+  const b = tmpBundle(); const { h, projects } = home();
+  const lock = path.join(b.root, ".locks", "git");
+  fs.mkdirSync(lock, { recursive: true });
+  const r = migrate(b, "hermes", { home: h, projectsRoot: projects, dryRun: false });
+  assert.equal(r.committed, false);
+  assert.ok(r.report.includes("lock held; rerun to commit"));
+  // concepts still land on disk even though the commit itself was skipped
+  assert.ok(r.created > 0);
+  const landed = b.dirs().reduce((n, d) => n + b.listConcepts(d).length, 0);
+  assert.equal(landed, r.created);
+  assert.equal(fs.existsSync(path.join(b.root, ".git", "logs", "HEAD")), false); // nothing ever committed
+  fs.rmSync(lock, { recursive: true, force: true });
 });

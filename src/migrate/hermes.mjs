@@ -2,7 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { resolveProjectName } from "./index.mjs";
 
-const META = /<!--\s*created=(\d{4}-\d{2}-\d{2}),\s*last=(\d{4}-\d{2}-\d{2})\s*-->/;
+// Real hermes entries can carry more than created/last inside the comment
+// (e.g. ", project64=..."); [^>]* eats whatever comes after last= up to the
+// closing "-->" so the whole comment strips out of the body, not just the
+// created/last prefix of it.
+const META = /<!--\s*created=(\d{4}-\d{2}-\d{2}),\s*last=(\d{4}-\d{2}-\d{2})[^>]*-->/;
 
 export function splitEntries(text) {
   return text.split(/\n?§\n?/).map((s) => s.trim()).filter(Boolean).map((raw) => {

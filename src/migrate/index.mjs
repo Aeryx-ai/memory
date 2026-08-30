@@ -7,7 +7,7 @@ import { slugify } from "../slug.mjs";
 import { projectIdFor, localProjectId } from "../project-id.mjs";
 import { appendLog } from "../log-file.mjs";
 import { writeIndex } from "../index-file.mjs";
-import { commitAll } from "../git.mjs";
+import { withLock, commitAll } from "../git.mjs";
 import * as claude from "./claude.mjs";
 import * as hermes from "./hermes.mjs";
 import * as piMemory from "./pi-memory.mjs";
@@ -129,16 +129,20 @@ export function migrate(bundle, store, { home = os.homedir(), projectsRoot = pat
     }
   }
   if (!dryRun) {
-    for (const rel of touched) {
-      const dir = rel ? bundle.dir(rel.replace(/^projects\//, "")) : bundle.dir(null);
-      const slugs = new Map(bundle.listConcepts(dir).map((e) => [path.basename(e.rel, ".md"), path.posix.relative(dir.rel, e.rel)]));
-      for (const e of bundle.listConcepts(dir)) {
-        const body = wikiToLinks(e.concept.body, slugs);
-        if (body !== e.concept.body) bundle.writeConcept(e.rel, { ...e.concept, body });
+    const ran = withLock(bundle.root, () => {
+      for (const rel of touched) {
+        const dir = rel ? bundle.dir(rel.replace(/^projects\//, "")) : bundle.dir(null);
+        const slugs = new Map(bundle.listConcepts(dir).map((e) => [path.basename(e.rel, ".md"), path.posix.relative(dir.rel, e.rel)]));
+        for (const e of bundle.listConcepts(dir)) {
+          const body = wikiToLinks(e.concept.body, slugs);
+          if (body !== e.concept.body) bundle.writeConcept(e.rel, { ...e.concept, body });
+        }
+        writeIndex(bundle, dir);
       }
-      writeIndex(bundle, dir);
-    }
-    commitAll(bundle.root, `memory: migrate ${store}`);
+      commitAll(bundle.root, `memory: migrate ${store}`);
+    });
+    result.committed = ran;
+    if (!ran) result.report.push("lock held; rerun to commit");
   }
   return result;
 }
