@@ -22,6 +22,15 @@ test("withLock runs once at a time and clears a stale lock", () => {
   assert.equal(withLock(b.root, () => ran++), true);
   assert.equal(ran, 2);
 });
+test("withLock reclaims a stale lock by atomic rename and holds it exclusively while fn runs", () => {
+  const b = tmpBundle();
+  const lock = path.join(b.root, ".locks", "git");
+  fs.mkdirSync(lock, { recursive: true });
+  const old = new Date(Date.now() - 600_000); fs.utimesSync(lock, old, old);
+  let ran = 0;
+  assert.equal(withLock(b.root, () => { ran++; assert.equal(withLock(b.root, () => ran++), false); }), true);
+  assert.equal(ran, 1);
+});
 test("sync pulls and pushes against a bare remote; no remote is not an error", () => {
   const b = tmpBundle();
   commitAll(b.root, "memory: init");
