@@ -1,0 +1,1 @@
+{ "name": "aeryx", "description": "Aeryx plugins", "owner": { "name": "Guy J Grigsby" }, "plugins": [{ "name": "memory", "description": "Shared OKF memory bundle for Claude Code.", "version": "0.1.0", "source": "./claude-plugin" }] }

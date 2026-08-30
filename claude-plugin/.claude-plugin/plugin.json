@@ -1,0 +1,1 @@
+{ "name": "memory", "version": "0.1.0", "description": "Shared OKF memory bundle for Claude Code: session-start context, background session summaries, remember and recall through the memory CLI.", "author": { "name": "Guy J Grigsby" }, "license": "MIT" }
