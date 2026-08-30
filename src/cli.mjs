@@ -18,6 +18,7 @@ import { doctor } from "./doctor.mjs";
 import { fold, runFoldJob, markFoldError, utcMinute, sessionSummaryRel } from "./fold.mjs";
 import { detectFormat, readEntries } from "./transcript.mjs";
 import { parseSummaryBody } from "./summary.mjs";
+import { migrate as runMigrate } from "./migrate/index.mjs";
 
 const GLOBAL = { dir: { type: "string" }, cwd: { type: "string" }, actor: { type: "string" }, md: { type: "boolean" }, root: { type: "boolean" }, "stdin-text": { type: "string" } };
 const FOLD_OPTIONS = {
@@ -37,6 +38,7 @@ const COMMANDS = {
   fold: FOLD_OPTIONS, _fold: FOLD_OPTIONS,
   summarize: { session: { type: "string" } },
   "recall-observation": { session: { type: "string" } },
+  migrate: { "dry-run": { type: "boolean" }, home: { type: "string" }, "projects-root": { type: "string" } },
 };
 
 // argv carries global flags (with their values) ahead of the command word, e.g.
@@ -235,6 +237,10 @@ const HANDLERS = {
       return { id, line: obs ?? ref, entries };
     }
     throw new MemoryError("notfound", `no observation or reflection ${id}`);
+  },
+  async migrate(ctx, v, [store]) {
+    requireBundle(ctx.bundle);
+    return runMigrate(ctx.bundle, store ?? "all", { home: v.home, projectsRoot: v["projects-root"], dryRun: !!v["dry-run"] });
   },
 };
 async function transition(ctx, v, key, fn, kind) {
