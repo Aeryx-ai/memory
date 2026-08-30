@@ -1,0 +1,18 @@
+{
+  "name": "@aeryx/memory",
+  "version": "0.1.0",
+  "description": "One OKF memory bundle for every coding agent: CLI, pi extension and Claude Code plugin.",
+  "license": "MIT",
+  "type": "module",
+  "repository": { "type": "git", "url": "git+https://github.com/aeryx-ai/memory.git" },
+  "author": { "name": "Guy J Grigsby" },
+  "engines": { "node": ">=22" },
+  "bin": { "memory": "./bin/memory.mjs" },
+  "files": ["bin/", "src/", "extensions/", "README.md"],
+  "scripts": { "test": "node --test test/*.test.mjs" },
+  "keywords": ["pi-package", "pi", "extension", "memory", "okf", "claude-code"],
+  "pi": { "extensions": ["./extensions/pi.ts"] },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
+  "peerDependenciesMeta": { "@earendil-works/pi-coding-agent": { "optional": true } },
+  "dependencies": { "yaml": "^2.9.0" }
+}
