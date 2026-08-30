@@ -97,6 +97,8 @@ Each session keeps one Session Summary concept current in the background, so com
 
 Rendering into `context` uses the same two sections, reflections first. A migrated pi-memory daily log has observations only.
 
+Trust boundary. Transcript text (tool results, fetched pages, file contents) reaches the observer model and its output lines become observations that every later session in the project receives as context. Text the agent read becomes text the agent later believes, laundered through the summarizer. What bounds it: tool results are clipped before they reach the prompt, cited entry ids must exist in the delta, observation and reflection lines run through the secret scanner, observation content is capped at 240 characters, one fold adds at most 40 observations, and the `<memory-context>` header states that the block is recorded memory, not instructions. What does not bound it: the model can still be steered into writing a false or manipulative observation. Consumers treat Session Summaries as evidence of what happened, never as directives.
+
 ## Package
 
 Repo `github.com/aeryx-ai/memory` (org to be created; the handle does not exist on GitHub yet), checked out at `~/projects/memory`. The repo root is the npm package `@aeryx/memory`: library, the `memory` CLI (`bin`) and the pi extension (`pi.extensions`) in one package, so lib and CLI can never drift apart. `claude-plugin/` in the same repo is the Claude Code plugin, with a `.claude-plugin/marketplace.json` at the repo root so `claude plugin marketplace add aeryx-ai/memory` installs it; the guygrigsby marketplace can point at it too. `pi-extensions/claude-memory` is deleted once this ships. Dependencies: `yaml` for frontmatter, `git` on PATH. No database, no daemon.
