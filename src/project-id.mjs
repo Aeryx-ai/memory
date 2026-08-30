@@ -29,6 +29,11 @@ export function projectIdFromOrigin(url) {
     u = u.replace(/^[^@/]+@/, "");
     // Split at first /
     const i = u.indexOf("/");
+    // No "/" at all means no path (e.g. "https://github.com"): indexOf(-1)
+    // would otherwise chop the last character off the host for it and hand
+    // the whole string back as the path, producing a wrong-but-well-formed
+    // id like "github.co/github.com" instead of refusing outright.
+    if (i === -1) throw new MemoryError("refused", `malformed project id origin ${JSON.stringify(url.trim())}`);
     host = u.slice(0, i);
     p = u.slice(i + 1);
   } else {

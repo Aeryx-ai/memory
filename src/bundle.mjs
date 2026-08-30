@@ -19,7 +19,7 @@ export class Bundle {
   exists() { return fs.existsSync(this.abs("index.md")); }
   init({ remote, at } = {}) {
     fs.mkdirSync(this.root, { recursive: true });
-    if (!fs.existsSync(this.abs(".gitignore"))) this.writeAtomic(".gitignore", ".state/\n.locks/\n");
+    this.ensureGitignore();
     if (!fs.existsSync(this.abs("index.md"))) this.writeAtomic("index.md", ROOT_INDEX);
     if (!fs.existsSync(this.abs("log.md"))) {
       const d = (at ?? new Date().toISOString()).slice(0, 10);
@@ -30,6 +30,16 @@ export class Bundle {
       try { execFileSync("git", ["remote", "get-url", "origin"], { cwd: this.root, stdio: "ignore" }); }
       catch { execFileSync("git", ["remote", "add", "origin", remote], { cwd: this.root }); }
     }
+  }
+  // Idempotent: creates .gitignore with the standard entries if it's missing,
+  // or adds *.tmp to an existing one that predates it, so a writeAtomic temp
+  // file left behind by a crash mid-write never gets picked up by git add -A.
+  ensureGitignore() {
+    const p = this.abs(".gitignore");
+    if (!fs.existsSync(p)) { this.writeAtomic(".gitignore", ".state/\n.locks/\n*.tmp\n"); return; }
+    const text = fs.readFileSync(p, "utf8");
+    if (text.split("\n").some((l) => l.trim() === "*.tmp")) return;
+    fs.writeFileSync(p, text.endsWith("\n") || text === "" ? `${text}*.tmp\n` : `${text}\n*.tmp\n`);
   }
   dir(projectId) {
     if (projectId == null) return { rel: "", abs: this.root, isRoot: true, projectId: null };

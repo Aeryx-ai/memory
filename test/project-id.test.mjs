@@ -51,3 +51,8 @@ test("projectIdFromOrigin rejects filesystem paths", () => {
     assert.throws(() => projectIdFromOrigin(bad), (e) => e.code === "refused");
   }
 });
+test("a scheme url with no path is refused, not silently mangled into a wrong host/path split", () => {
+  for (const bad of ["https://github.com", "https://github.com/"]) {
+    assert.throws(() => projectIdFromOrigin(bad), (e) => e.code === "refused", bad);
+  }
+});

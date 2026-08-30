@@ -3,8 +3,36 @@ import path from "node:path";
 import { parseConcept, validateConcept } from "./concept.mjs";
 import { renderIndex } from "./index-file.mjs";
 import { TYPE_DIRS } from "./types.mjs";
+import { findSecret } from "./secrets.mjs";
+
+const SKIP_DIRS = new Set([".git", ".state", ".locks", "node_modules"]);
+const TYPE_DIR_NAMES = new Set(Object.values(TYPE_DIRS));
+const RESERVED_MD = new Set(["index.md", "log.md"]);
+// git add -A pushes every file in the bundle, not just the ones the type-dir
+// loop below already parses; a stray .md dropped anywhere (bundle root, a
+// project directory, a typo'd directory) would otherwise never be scanned
+// for a legal shape or a secret. Walk the whole tree once, skip generated
+// files and anything inside a recognized type directory (parsed elsewhere
+// above), and flag the rest.
+function walkStray(bundle, abs, rel, problems) {
+  for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) continue;
+      walkStray(bundle, path.join(abs, entry.name), path.posix.join(rel, entry.name), problems);
+      continue;
+    }
+    if (!entry.name.endsWith(".md") || RESERVED_MD.has(entry.name)) continue;
+    const parentName = path.posix.basename(rel);
+    if (TYPE_DIR_NAMES.has(parentName)) continue; // already parsed by the type-dir loop
+    const fileRel = path.posix.join(rel, entry.name);
+    problems.push({ rel: fileRel, problem: "unrecognized file" });
+    const hit = findSecret(bundle.read(fileRel) ?? "");
+    if (hit) problems.push({ rel: fileRel, problem: `secret (${hit.name})` });
+  }
+}
 export function check(bundle) {
   const problems = [];
+  walkStray(bundle, bundle.root, "", problems);
   for (const dir of bundle.dirs()) {
     // Same set writeIndex uses, so "expected" here is exactly what `memory index`
     // would write; a placement violation still lands in entries (listConcepts

@@ -17,7 +17,21 @@ test("init creates an OKF root and a git repo", () => {
   assert.match(fs.readFileSync(path.join(b.root, "log.md"), "utf8"), /\*\*Initialization\*\*/);
   assert.ok(fs.existsSync(path.join(b.root, ".git")));
   assert.match(fs.readFileSync(path.join(b.root, ".gitignore"), "utf8"), /\.state\//);
+  assert.match(fs.readFileSync(path.join(b.root, ".gitignore"), "utf8"), /^\*\.tmp$/m);
   b.init({}); // idempotent
+});
+test("init adds *.tmp to a .gitignore that predates it, without touching the rest", () => {
+  const root = path.join(tmpDir("bundle-"), "memory");
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, ".gitignore"), ".state/\n.locks/\n");
+  const b = new Bundle(root);
+  b.init({});
+  const text = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
+  assert.match(text, /\.state\//);
+  assert.match(text, /^\*\.tmp$/m);
+  const before = text;
+  b.init({}); // idempotent: a second init does not duplicate the line
+  assert.equal(fs.readFileSync(path.join(root, ".gitignore"), "utf8"), before);
 });
 test("dirs, concept paths, write and read", () => {
   const b = tmpBundle();
