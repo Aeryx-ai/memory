@@ -62,7 +62,7 @@ Agent-facing: JSON to stdout by default, `--md` for markdown, exit codes the cal
 | `fold --session R --actor A --transcript PATH [--cwd] [--finalize] [--summarize-cmd CMD]` | checkpoint compare; below `observeAfterTokens` exit 0; else detach a job that appends observations from the delta, reflects when due, prunes, advances the checkpoint; `--finalize` folds whatever is left and marks it `stable` |
 | `recall-observation <id>` | the source transcript entries behind one observation or reflection id |
 | `summarize --session R --actor A [--cwd]` | body on stdin becomes the session's Session Summary verbatim (pi compaction summaries, migration) |
-| `context [--cwd] [--session R] [--summaries 3] [--budget bytes]` | the bytes a harness injects: root index, project index, latest N Session Summary bodies, the current session's own summary first when `--session` is given; deterministic for the same bundle state so prefix caches hold |
+| `context [--cwd] [--session R] [--summaries 3] [--budget bytes]` | the bytes a harness injects: root index, project index, latest N Session Summary bodies, the current session's own summary first when `--session` is given; deterministic for the same bundle state so prefix caches hold; always plain text, not JSON, regardless of `--md` |
 | `index` | regenerate every `index.md` |
 | `check` | every non-reserved `.md` parses, `type` legal for its directory, no secrets, every index matches regeneration; exit 4 on any failure |
 | `sync [--pull\|--push]` | commit pending, `pull --rebase`, regen index if the pull changed anything, push; exits at once if the lock is held |
@@ -77,7 +77,7 @@ pi reads a `"memory"` block from `~/.pi/agent/settings.json` (or `<cwd>/.pi/sett
 
 - `dir`: bundle root, overrides `MEMORY_DIR`.
 - `summaryModel`: model the fold job's summarizer runs on, `pi/<model id>` by default.
-- `observeAfterTokens` (default 8000), `reflectAfterTokens` (20000), `observationsMaxTokens` (20000), `observationsTargetTokens` (10000): fold thresholds, see Speed below.
+- `observeAfterTokens` (default 8000), `reflectAfterTokens` (20000), `observationsMaxTokens` (20000), `observationsTargetTokens` (10000), `observerMaxTokens` (60000, caps the delta handed to the observer prompt itself): fold thresholds, see Speed below.
 
 ## Environment variables
 
