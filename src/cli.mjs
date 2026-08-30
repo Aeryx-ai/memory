@@ -196,7 +196,9 @@ const HANDLERS = {
     catch (e) {
       // Detached job: never throw. Best-effort record the failure against the
       // session's checkpoint so it's visible on the next fold or to doctor.
-      if (v.session) { try { markFoldError(ctx.bundle, v.session, e.message); } catch { /* nothing more we can do */ } }
+      // Only when the bundle actually exists: without one there's nowhere to
+      // record it, and writing under .state/ would create a stray directory.
+      if (v.session && ctx.bundle.exists()) { try { markFoldError(ctx.bundle, v.session, e.message); } catch { /* nothing more we can do */ } }
       return undefined;
     }
   },
@@ -228,7 +230,8 @@ const HANDLERS = {
       const ids = obs ? [id] : ref.supports;
       const entryIds = concept.sources.filter((s) => s.id && ids.includes(s.id)).flatMap((s) => s.resource.split(","));
       const transcript = concept.sources.find((s) => s.title === "transcript")?.resource;
-      const entries = transcript && underHome(transcript) && fs.existsSync(transcript) ? readEntries(transcript, detectFormat(transcript), entryIds) : [];
+      if (transcript && !underHome(transcript)) return { id, line: obs ?? ref, entries: [], reason: "transcript outside home" };
+      const entries = transcript && fs.existsSync(transcript) ? readEntries(transcript, detectFormat(transcript), entryIds) : [];
       return { id, line: obs ?? ref, entries };
     }
     throw new MemoryError("notfound", `no observation or reflection ${id}`);

@@ -39,6 +39,7 @@ test("transitions", () => {
   assert.deepEqual(r.sources.map((s) => s.resource), ["claude-code:session/abc", "pi:session/xyz"]);
 });
 test("duplicate source refused only when resource and id both match", () => {
+  assert.throws(() => createConcept({ ...base, sources: [{ resource: "a" }, { resource: "a" }] }), (e) => e.code === "refused");
   assert.throws(() => createConcept({ ...base, sources: [{ resource: "a", id: "x" }, { resource: "a", id: "x" }] }), (e) => e.code === "refused");
 });
 test("same resource with different ids is accepted (many observations can cite one entry)", () => {

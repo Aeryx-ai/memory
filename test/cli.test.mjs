@@ -4,7 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { main } from "../src/cli.mjs";
-import { parseSummaryBody } from "../src/summary.mjs";
+import { createConcept } from "../src/concept.mjs";
+import { parseSummaryBody, renderSummaryBody } from "../src/summary.mjs";
 import { tmpBundle, tmpGitRepo, tmpDir } from "./helpers.mjs";
 process.env.MEMORY_SYNC_INLINE = "1";
 async function run(args, { stdin = "" } = {}) {
@@ -183,4 +184,23 @@ test("summarize refuses to overwrite a session summary that already has folded o
   await run([...base, "fold", "--session", "pi:session/sum", "--transcript", fx, "--format", "pi", "--summarize-cmd", observer, "--finalize"]);
   const r = await run([...base, "summarize", "--session", "pi:session/sum"], { stdin: "Replacement body.\n" });
   assert.equal(r.code, 3);
+});
+test("recall-observation reports a reason when a transcript source resolves outside the home directory", async () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const dir = b.dir("github.com/a/b");
+  const outside = path.join(tmpDir(), "outside.jsonl");
+  fs.writeFileSync(outside, "");
+  const obsId = "aaaaaaaaaaaa";
+  const body = renderSummaryBody({ reflections: [], observations: [{ id: obsId, at: "2026-08-27 23:09", relevance: "high", content: "test observation" }] });
+  const concept = createConcept({
+    type: "Session Summary", title: "Test", description: "Session pi:session/x", status: "draft", actor: "pi/kimi-k3", at: "2026-08-27T23:09:00.000Z",
+    sources: [{ resource: "pi:session/x" }, { resource: outside, title: "transcript" }, { resource: "a1b2c3d4", id: obsId }], body,
+  });
+  const rel = b.conceptRel(dir, "Session Summary", "test");
+  b.writeConcept(rel, concept);
+  const base = ["--dir", b.root, "--cwd", repo];
+  const r = await run([...base, "recall-observation", obsId]);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json.entries, []);
+  assert.equal(r.json.reason, "transcript outside home");
 });

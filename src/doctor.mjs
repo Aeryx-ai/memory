@@ -14,6 +14,16 @@ export function doctor(bundle, { env = process.env, home = os.homedir() } = {}) 
   const gitDir = path.join(bundle.root, ".git");
   if (fs.existsSync(path.join(gitDir, "rebase-merge")) || fs.existsSync(path.join(gitDir, "rebase-apply"))) add("fail", "git rebase in progress; resolve by hand in the bundle");
   const c = check(bundle); c.ok ? add("ok", "check clean") : add("fail", `check: ${c.problems.length} problems (memory check)`);
+  const stateDir = path.join(bundle.root, ".state");
+  if (fs.existsSync(stateDir)) {
+    for (const name of fs.readdirSync(stateDir)) {
+      if (!name.endsWith(".json")) continue;
+      try {
+        const state = JSON.parse(fs.readFileSync(path.join(stateDir, name), "utf8"));
+        if (state.lastError) add("warn", `fold error for session ${state.session ?? name}: ${state.lastError.message}`);
+      } catch { /* not a fold checkpoint, or unreadable; not doctor's concern */ }
+    }
+  }
   try { const s = JSON.parse(fs.readFileSync(path.join(home, ".claude", "settings.json"), "utf8")); if (s.autoMemoryEnabled !== false) add("warn", 'Claude Code auto memory still on; set "autoMemoryEnabled": false in ~/.claude/settings.json'); } catch { /* no claude */ }
   try { const s = JSON.parse(fs.readFileSync(path.join(home, ".pi", "agent", "settings.json"), "utf8")); const names = (s.packages ?? []).map((p) => (typeof p === "string" ? p : p.source).replace(/^npm:/, "")); for (const l of LEGACY) if (names.includes(l)) add("warn", `legacy pi package still installed: ${l} (pi remove npm:${l})`); } catch { /* no pi */ }
   for (const bin of ["pi", "claude", "git"]) { try { execFileSync("which", [bin], { stdio: "ignore", env }); add("ok", `${bin} on PATH`); } catch { add(bin === "git" ? "fail" : "warn", `${bin} not on PATH`); } }

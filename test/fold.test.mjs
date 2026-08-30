@@ -85,13 +85,15 @@ test("runFoldJob with finalize and a missing transcript is a no-op skip", () => 
   assert.deepEqual(r, { observations: 0, reflected: false, dropped: 0, skipped: "no transcript" });
   assert.equal(b.listConcepts(b.dir("github.com/a/b")).length, 0);
 });
-test("a stale fold lock is reclaimed; a live one is respected", () => {
+test("the fold lock's stale window is sized to a fold's worst case (two 180s summarizer calls), not the git lock's 300s", () => {
   const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
   const opts = { session: "pi:session/lock", actor: "pi/kimi-k3", transcript: fx, cwd: repo, format: "pi", summarizeCmd: observer };
   const lock = path.join(b.root, ".locks", "fold-pi-session-lock");
   fs.mkdirSync(lock, { recursive: true });
-  const old = new Date(Date.now() - 600_000); fs.utimesSync(lock, old, old);
-  assert.equal(runFoldJob(b, opts).observations, 1); // stale lock reclaimed, job ran
+  const aged400 = new Date(Date.now() - 400_000); fs.utimesSync(lock, aged400, aged400);
+  assert.equal(runFoldJob(b, opts).skipped, "locked"); // 400s old: still inside the fold's 900s window, not stale
+  const aged1000 = new Date(Date.now() - 1_000_000); fs.utimesSync(lock, aged1000, aged1000);
+  assert.equal(runFoldJob(b, opts).observations, 1); // 1000s old: past the fold's 900s window, reclaimed
   fs.mkdirSync(lock, { recursive: true }); // fresh (live) lock this time
   assert.equal(runFoldJob(b, opts).skipped, "locked");
   fs.rmSync(lock, { recursive: true, force: true });
@@ -107,4 +109,28 @@ test("a reflection whose supports get pruned away is kept with empty supports, n
   assert.equal(body.reflections.length, 1);
   assert.deepEqual(body.reflections[0].supports, []);
   assert.equal(body.reflections[0].content, "Stable fact");
+});
+test("finalize with no summarizer and nothing folded yet returns no summarizer; creates no concept", () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const r = runFoldJob(b, { session: "pi:session/bare-finalize", actor: "pi/kimi-k3", transcript: fx, cwd: repo, format: "pi", finalize: true });
+  assert.deepEqual(r, { observations: 0, reflected: false, dropped: 0, skipped: "no summarizer" });
+  assert.equal(b.listConcepts(b.dir("github.com/a/b")).length, 0);
+});
+test("finalize with no summarizer promotes an already-drafted summary to stable, skips the observer, and never advances the checkpoint", () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const opts = { session: "pi:session/promote", actor: "pi/kimi-k3", transcript: fx, cwd: repo, format: "pi", summarizeCmd: observer };
+  const first = runFoldJob(b, opts);
+  assert.equal(first.observations, 1);
+  const dir = b.dir("github.com/a/b");
+  const [{ rel }] = b.listConcepts(dir).filter((e) => e.concept.type === "Session Summary");
+  assert.equal(b.readConcept(rel).status, "draft");
+  const before = JSON.parse(fs.readFileSync(b.statePath("pi-session-promote.json"), "utf8"));
+  // Note: transcript now points at a path that does not exist, and summarizeCmd
+  // is absent; promotion must not need either.
+  const missing = path.join(repo, "gone.jsonl");
+  const r2 = runFoldJob(b, { session: opts.session, actor: opts.actor, transcript: missing, cwd: repo, format: "pi", finalize: true });
+  assert.deepEqual(r2, { observations: 0, reflected: false, dropped: 0 });
+  assert.equal(b.readConcept(rel).status, "stable");
+  const after = JSON.parse(fs.readFileSync(b.statePath("pi-session-promote.json"), "utf8"));
+  assert.equal(after.transcriptBytes, before.transcriptBytes); // checkpoint untouched
 });

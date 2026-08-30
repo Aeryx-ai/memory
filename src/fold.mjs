@@ -95,24 +95,61 @@ const REF_OUT = /^(.+?)\s*<-\s*([a-f0-9]{12}(?:,[a-f0-9]{12})*)\s*$/;
 const minute = (iso) => { const d = new Date(iso); const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 
 export function runFoldJob(bundle, opts) {
-  const { session, transcript } = opts;
-  if (!opts.summarizeCmd) return { observations: 0, reflected: false, dropped: 0, skipped: "no summarizer" };
-  if (!fs.existsSync(transcript)) return { observations: 0, reflected: false, dropped: 0, skipped: "no transcript" };
+  const { session, transcript, finalize = false } = opts;
+  const hasSummarizer = !!opts.summarizeCmd;
+  // With no summarizer there's nothing to observe or reflect on; the only
+  // useful work left is promoting an already-drafted summary on finalize,
+  // handled inside the lock below (it needs to see whether a concept exists).
+  if (!hasSummarizer && !finalize) return { observations: 0, reflected: false, dropped: 0, skipped: "no summarizer" };
+  // The promote-only path never reads the transcript, so only require it when
+  // a summarizer is actually going to run over it.
+  if (hasSummarizer && !fs.existsSync(transcript)) return { observations: 0, reflected: false, dropped: 0, skipped: "no transcript" };
   let result = { observations: 0, reflected: false, dropped: 0 };
-  const ran = withLock(bundle.root, () => { result = runFold(bundle, opts); }, { name: `fold-${sessionSlug(session)}` });
+  // staleMs is generous: a fold can run two summarizer calls (observer, then
+  // reflector) back to back, each with its own 180s timeout, so the default
+  // git-lock staleness window (300s) is shorter than a fold's worst case and
+  // would let a second fold reclaim a still-live lock.
+  const ran = withLock(bundle.root, () => { result = runFold(bundle, opts); }, { name: `fold-${sessionSlug(session)}`, staleMs: 900_000 });
   if (!ran) return { observations: 0, reflected: false, dropped: 0, skipped: "locked" };
   return result;
 }
 
+function promoteToStable(bundle, dir, state, rel, concept, actor, now, session) {
+  let revised;
+  try {
+    revised = revise(concept, { status: "stable" }, actor, now);
+  } catch (e) {
+    state.lastError = { at: now, message: e.message };
+    saveState(bundle, state);
+    return { observations: 0, reflected: false, dropped: 0, error: e.message };
+  }
+  bundle.writeConcept(rel, revised);
+  appendLog(bundle, dir, { kind: "Update", concept: revised, rel, actor, at: now });
+  afterWrite(bundle, { dirRel: dir.rel, message: `memory: fold ${session}` });
+  delete state.lastError;
+  saveState(bundle, state); // transcriptBytes/foldedAt untouched: the checkpoint does not advance
+  return { observations: 0, reflected: false, dropped: 0 };
+}
+
 function runFold(bundle, opts) {
-  const { session, actor, transcript, cwd, finalize = false, summarizeCmd } = opts;
-  const settings = { ...DEFAULTS, ...(opts.settings ?? {}) };
-  const format = opts.format ?? detectFormat(transcript);
+  const { session, actor, cwd, finalize = false, summarizeCmd } = opts;
   const state = loadState(bundle, session);
   const dir = bundle.dir(opts.projectId ?? projectIdFor(cwd));
   const now = new Date().toISOString();
   let rel = state.rel, concept;
   if (rel) { try { concept = bundle.readConcept(rel); } catch { rel = null; } }
+
+  if (!summarizeCmd) {
+    // finalize:true with no summarizer configured: promote whatever draft
+    // already exists, skip the observer entirely, never create a concept and
+    // never touch the checkpoint.
+    if (!rel) return { observations: 0, reflected: false, dropped: 0, skipped: "no summarizer" };
+    return promoteToStable(bundle, dir, state, rel, concept, actor, now, session);
+  }
+
+  const { transcript } = opts;
+  const settings = { ...DEFAULTS, ...(opts.settings ?? {}) };
+  const format = opts.format ?? detectFormat(transcript);
   if (!rel) {
     rel = sessionSummaryRel(bundle, dir, now, actor);
     concept = createConcept({ type: "Session Summary", title: `${utcMinute(now)} ${actor}`, description: `Session ${session}`, status: "draft", actor, at: now, sources: [{ resource: session }, { resource: transcript, title: "transcript" }], body: renderSummaryBody({ reflections: [], observations: [] }) });
@@ -150,6 +187,7 @@ function runFold(bundle, opts) {
     for (const line of out.split("\n")) {
       const m = REF_OUT.exec(line.trim()); if (!m) continue;
       const content = m[1].trim(); if (!content) continue;
+      if (findSecret(content)) continue; // never persist a secret into a reflection either
       // Supports that no longer exist (pruned away) don't invalidate the
       // reflection itself; keep it with whatever supports still resolve.
       const supports = m[2].split(",").filter((id) => known.has(id));

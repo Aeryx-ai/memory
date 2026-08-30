@@ -9,13 +9,13 @@ export function git(root, args, { allowFail = false, timeoutMs } = {}) {
   try { return execFileSync("git", args, opts).trim(); }
   catch (e) { if (allowFail) return null; throw new MemoryError("sync", `git ${args.join(" ")}: ${e.stderr?.toString().trim() || e.message}`); }
 }
-export function withLock(root, fn, { name = "git" } = {}) {
+export function withLock(root, fn, { name = "git", staleMs = STALE_MS } = {}) {
   const lock = path.join(root, ".locks", name);
   fs.mkdirSync(path.dirname(lock), { recursive: true });
   try { fs.mkdirSync(lock); }
   catch {
     let stale = false;
-    try { stale = Date.now() - fs.statSync(lock).mtimeMs > STALE_MS; } catch { stale = true; }
+    try { stale = Date.now() - fs.statSync(lock).mtimeMs > staleMs; } catch { stale = true; }
     if (!stale) return false;
     // Reclaim by atomic rename: never rmSync the live lock path directly, since a
     // concurrent reclaimer could be racing the same check-then-remove window.

@@ -66,3 +66,17 @@ test("claude auto memory warns unless explicitly disabled", () => {
   r = doctor(b, { env, home: homeOff });
   assert.ok(!r.findings.some((f) => f.message.includes("autoMemoryEnabled")));
 });
+
+test("doctor warns for every .state/*.json checkpoint carrying a lastError, naming the session and message", () => {
+  const b = tmpBundle();
+  const env = { PATH: pathWithOnlyGit() };
+  const home = tmpDir("home-");
+  const statePath = b.statePath("pi-session-broken.json");
+  fs.writeFileSync(statePath, JSON.stringify({ session: "pi:session/broken", transcriptBytes: 0, foldedAt: null, rel: "projects/x/session-summaries/y.md", observedSinceReflect: 0, lastError: { at: "2026-08-29T00:00:00.000Z", message: "Command failed: false" } }));
+  const r = doctor(b, { env, home });
+  assert.ok(r.findings.some((f) => f.level === "warn" && f.message === "fold error for session pi:session/broken: Command failed: false"));
+  // a healthy checkpoint (no lastError) stays silent
+  fs.writeFileSync(b.statePath("pi-session-ok.json"), JSON.stringify({ session: "pi:session/ok", transcriptBytes: 10, foldedAt: "2026-08-29T00:00:00.000Z", rel: null, observedSinceReflect: 0 }));
+  const r2 = doctor(b, { env, home });
+  assert.equal(r2.findings.filter((f) => f.message.startsWith("fold error")).length, 1);
+});
