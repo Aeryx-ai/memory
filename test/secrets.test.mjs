@@ -20,3 +20,10 @@ test("plain prose and short tokens pass", () => {
   assert.equal(findSecret("the password field is required"), null);
   assert.equal(findSecret("token=abc"), null);
 });
+test("assignment pattern rejects prose field descriptions", () => {
+  assert.equal(findSecret("token: required"), null);
+  assert.equal(findSecret("Password: optional"), null);
+  assert.equal(findSecret("secret: undefined here"), null);
+  assert.equal(findSecret("api-key: mandatory field"), null);
+  assert.equal(findSecret("the api_key field is set in config"), null);
+});

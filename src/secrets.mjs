@@ -7,7 +7,7 @@ const PATTERNS = [
   ["pem", /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
   ["jwt", /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/],
   ["bearer", /\bBearer\s+[A-Za-z0-9._-]{20,}/],
-  ["assignment", /\b(password|passwd|secret|api[_-]?key|token)\s*[=:]\s*["']?[^\s"']{8,}/i],
+  ["assignment", /\b(password|passwd|secret|api[_-]?key|token)\s*[=:]\s*["']?(?=[A-Za-z0-9_\-./+=]*\d)[A-Za-z0-9_\-./+=]{12,}/i],
 ];
 export function findSecret(text) {
   for (const [name, re] of PATTERNS) {
