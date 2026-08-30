@@ -32,3 +32,20 @@ test("stop runs fold and exits 0 quickly; pre-compact emits instructions; sessio
   const sums = b.listConcepts(b.dir("github.com/a/b")).filter((e) => e.concept.type === "Session Summary");
   assert.equal(sums.length, 1); assert.equal(sums[0].concept.status, "stable");
 });
+const SCRIPTS = ["session-start.sh", "stop.sh", "pre-compact.sh", "session-end.sh"];
+test("all four hooks exit 0 with empty stdout when MEMORY=off", () => {
+  for (const script of SCRIPTS) {
+    const out = run(script, { session_id: "s1", cwd: "/tmp", transcript_path: "/tmp/does-not-matter" }, { MEMORY: "off" });
+    assert.equal(out, "");
+  }
+});
+test("all four hooks exit 0 with empty stdout when MEMORY_PROMPT_FILE is set", () => {
+  for (const script of SCRIPTS) {
+    const out = run(script, { session_id: "s1", cwd: "/tmp", transcript_path: "/tmp/does-not-matter" }, { MEMORY_PROMPT_FILE: "/tmp/x" });
+    assert.equal(out, "");
+  }
+});
+test("the default summarize command is gated with MEMORY=off", () => {
+  const common = fs.readFileSync(path.join(hooks, "common.sh"), "utf8");
+  assert.match(common, /SUMMARIZE="\$\{MEMORY_SUMMARIZE_CMD:-MEMORY=off /);
+});
