@@ -45,6 +45,20 @@ test("deprecate, restore, show, project-id, usage errors", async () => {
   r = await run([...base, "remember", "--title", "no type"]); assert.equal(r.code, 1);
   r = await run([...base, "bogus"]); assert.equal(r.code, 1);
 });
+test("remember refuses to overwrite a concept that fails to parse", async () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const base = ["--dir", b.root, "--cwd", repo];
+  const rel = "projects/github.com/a/b/project/broken.md";
+  b.writeAtomic(rel, "no frontmatter here\n");
+  const r = await run([...base, "remember", "--type", "Project", "--title", "Broken"], { stdin: "new body\n" });
+  assert.equal(r.code, 3);
+  assert.equal(b.read(rel), "no frontmatter here\n");
+});
+test("global flags accept --flag=value form", async () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const r = await run(["--dir=" + b.root, "--cwd=" + repo, "project-id"]);
+  assert.deepEqual(r.json, { projectId: "github.com/a/b" });
+});
 test("init is idempotent and sets the remote", async () => {
   const root = path.join(tmpBundle().root, "..", "fresh");
   let r = await run(["--dir", root, "init", "--remote", "git@github.com:guygrigsby/agent-memory.git"]);

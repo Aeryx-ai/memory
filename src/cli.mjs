@@ -27,9 +27,10 @@ function findCommandIndex(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) return a.startsWith("-") ? -1 : i;
-    const opt = GLOBAL[a.slice(2)];
+    const [name, ...eq] = a.slice(2).split("=");
+    const opt = GLOBAL[name];
     if (!opt) return -1;
-    if (opt.type !== "boolean") i++;
+    if (opt.type !== "boolean" && eq.length === 0) i++;
   }
   return -1;
 }
@@ -96,7 +97,9 @@ const HANDLERS = {
     const sources = (v.source ?? []).map((resource) => ({ resource }));
     const tags = v.tags ? v.tags.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
     const rel = ctx.bundle.conceptRel(dir, type, slugify(title));
-    let existing = null; try { existing = ctx.bundle.readConcept(rel); } catch { /* new */ }
+    let existing = null;
+    try { existing = ctx.bundle.readConcept(rel); }
+    catch (e) { if (!(e instanceof MemoryError) || e.code !== "notfound") throw e; }
     const concept = existing
       ? revise(existing, { title, description: v.description, tags, body, sources, status: v.status }, ctx.actor, at)
       : createConcept({ type, title, description: v.description, tags: tags ?? [], status: v.status, actor: ctx.actor, at, sources, body });
