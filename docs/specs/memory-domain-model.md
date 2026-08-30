@@ -115,13 +115,13 @@ Unknown frontmatter keys are preserved on round trip, as OKF requires.
 stateDiagram-v2
     [*] --> draft: Create(status draft)
     [*] --> stable: Create
-    draft --> stable: Revise / Restore
+    draft --> stable: Revise(status stable) / Restore
     stable --> deprecated: Deprecate
     draft --> deprecated: Deprecate
     deprecated --> stable: Restore
 ```
 
-Anything not drawn is refused. `deprecated` concepts leave the index and the context render, remain on disk and in recall with `--deprecated`.
+Anything not drawn is refused. A plain `Revise` keeps the current status; only an explicit promotion to `stable` moves a draft. Creation never starts at `deprecated`. `deprecated` concepts leave the index and the context render, remain on disk and in recall with `--deprecated`.
 
 ### Relationships
 
