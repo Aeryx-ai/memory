@@ -21,5 +21,19 @@ export function compactionFromSummary(bundle, projectId, session, preparation) {
 }
 export function summarizeCmd(settings, model) {
   const m = settings.summaryModel ?? `${model.provider}/${model.id}`;
-  return `pi -p --no-extensions --no-skills --model ${m} "$(cat "$MEMORY_PROMPT_FILE")"`;
+  // MEMORY=off makes the nested pi's own copy of this extension return before
+  // registering anything (see the top of pi.ts), so it can't recurse into
+  // fold or context injection; --no-skills keeps it from expanding skills.
+  // Extensions stay enabled (no --no-extensions) so provider-registering
+  // extensions (e.g. a custom "clinepass" provider) are still available to
+  // resolve --model.
+  return `MEMORY=off pi -p --no-skills --model ${m} "$(cat "$MEMORY_PROMPT_FILE")"`;
+}
+// Compares the snapshot's capture date to `now` using local calendar dates
+// (not a 24h rolling window), so a snapshot taken at 23:59 is stale one
+// minute later at 00:00 the next day, while one taken at 00:01 is not stale
+// until the following midnight. Accepts Date, epoch ms, or ISO string.
+export function snapshotIsStale(capturedAt, now) {
+  const c = new Date(capturedAt), n = new Date(now);
+  return c.getFullYear() !== n.getFullYear() || c.getMonth() !== n.getMonth() || c.getDate() !== n.getDate();
 }

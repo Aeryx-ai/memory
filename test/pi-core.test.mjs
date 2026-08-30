@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { readSettings, contextBlock, compactionFromSummary, summarizeCmd } from "../extensions/pi-core.mjs";
+import { readSettings, contextBlock, compactionFromSummary, summarizeCmd, snapshotIsStale } from "../extensions/pi-core.mjs";
 import { createConcept } from "../src/concept.mjs";
 import { tmpBundle, tmpDir } from "./helpers.mjs";
 test("settings merge project over global", () => {
@@ -23,7 +23,19 @@ test("compaction from summary uses the session's Session Summary or returns null
   const r = compactionFromSummary(b, "local/x", "pi:session/s", { firstKeptEntryId: "k", tokensBefore: 100 });
   assert.equal(r.firstKeptEntryId, "k"); assert.match(r.summary, /fact/); assert.match(r.summary, /recall-observation|memory_recall_observation/);
 });
-test("summarize command prefers the configured model", () => {
-  assert.match(summarizeCmd({ summaryModel: "a/b" }, { provider: "x", id: "y" }), /--model a\/b/);
+test("summarize command prefers the configured model, keeps providers available, and isolates the nested extension", () => {
+  const a = summarizeCmd({ summaryModel: "a/b" }, { provider: "x", id: "y" });
+  assert.match(a, /--model a\/b/);
+  assert.match(a, /^MEMORY=off pi -p /);
+  assert.match(a, /--no-skills/);
+  assert.doesNotMatch(a, /--no-extensions/);
   assert.match(summarizeCmd({}, { provider: "x", id: "y" }), /--model x\/y/);
+});
+test("snapshotIsStale compares local calendar dates, not a rolling window", () => {
+  const beforeMidnight = new Date(2026, 7, 29, 23, 59); // Aug 29 2026 23:59 local
+  const afterMidnight = new Date(2026, 7, 30, 0, 1); // Aug 30 2026 00:01 local
+  assert.equal(snapshotIsStale(beforeMidnight, afterMidnight), true); // crossed midnight
+  assert.equal(snapshotIsStale(beforeMidnight, beforeMidnight), false); // same instant
+  const laterSameDay = new Date(2026, 7, 29, 23, 58);
+  assert.equal(snapshotIsStale(beforeMidnight, laterSameDay), false); // still Aug 29, even though laterSameDay < beforeMidnight
 });

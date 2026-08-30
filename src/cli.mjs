@@ -56,30 +56,44 @@ function findCommandIndex(argv) {
   return -1;
 }
 
-export async function main(argv) {
+// run() does everything main() does but never touches process.stdout/stderr:
+// it collects output into strings and returns them. This lets a caller (the
+// pi extension's tool bridge, chiefly) invoke concurrent commands without
+// racing a shared process.stdout.write monkeypatch. main() is a thin wrapper
+// that writes run()'s collected output to the real streams, for real CLI use.
+export async function run(argv) {
+  let stdout = "", stderr = "";
+  const write = (s) => { stdout += s; };
   try {
     const idx = findCommandIndex(argv);
     const cmd = idx === -1 ? undefined : argv[idx];
     if (!cmd || !COMMANDS[cmd]) throw new MemoryError("usage", `usage: memory <${Object.keys(COMMANDS).filter((c) => !c.startsWith("_")).join("|")}> [options]`);
     const rest = [...argv.slice(0, idx), ...argv.slice(idx + 1)];
     const { values, positionals } = parseArgs({ args: rest, options: { ...GLOBAL, ...COMMANDS[cmd] }, allowPositionals: true, strict: true });
-    const ctx = await context(values);
+    const ctx = await context(values, write);
     const result = await HANDLERS[cmd](ctx, values, positionals);
-    if (typeof result === "string") process.stdout.write(result);
-    else if (result !== undefined) process.stdout.write(JSON.stringify(result) + "\n");
-    return 0;
+    if (typeof result === "string") write(result);
+    else if (result !== undefined) write(JSON.stringify(result) + "\n");
+    return { code: 0, stdout, stderr };
   } catch (e) {
     const code = e instanceof MemoryError ? e.code : "usage";
-    process.stderr.write(JSON.stringify({ error: code, message: e.message }) + "\n");
-    return exitCode(code);
+    stderr += JSON.stringify({ error: code, message: e.message }) + "\n";
+    return { code: exitCode(code), stdout, stderr };
   }
 }
 
-async function context(values) {
+export async function main(argv) {
+  const { code, stdout, stderr } = await run(argv);
+  if (stdout) process.stdout.write(stdout);
+  if (stderr) process.stderr.write(stderr);
+  return code;
+}
+
+async function context(values, write) {
   const bundle = new Bundle(Bundle.resolveRoot({ dir: values.dir }));
   const cwd = values.cwd ? path.resolve(values.cwd) : process.cwd();
   const actor = values.actor ?? `human:${process.env.USER ?? os.userInfo().username}`;
-  return { bundle, cwd, actor, md: !!values.md, now: () => new Date().toISOString(),
+  return { bundle, cwd, actor, md: !!values.md, now: () => new Date().toISOString(), write,
     readStdin: () => values["stdin-text"] !== undefined ? values["stdin-text"] : readAll() };
 }
 async function readAll() {
@@ -163,7 +177,7 @@ const HANDLERS = {
   async check(ctx) {
     requireBundle(ctx.bundle);
     const r = check(ctx.bundle);
-    if (!r.ok) { process.stdout.write(JSON.stringify(r) + "\n"); throw new MemoryError("check", `${r.problems.length} problems`); }
+    if (!r.ok) { ctx.write(JSON.stringify(r) + "\n"); throw new MemoryError("check", `${r.problems.length} problems`); }
     return r;
   },
   async sync(ctx, v) {
@@ -184,7 +198,7 @@ const HANDLERS = {
   },
   async doctor(ctx) {
     const r = doctor(ctx.bundle, { home: process.env.HOME });
-    if (!r.ok) { process.stdout.write(JSON.stringify(r) + "\n"); throw new MemoryError("check", "doctor found failures"); }
+    if (!r.ok) { ctx.write(JSON.stringify(r) + "\n"); throw new MemoryError("check", "doctor found failures"); }
     return r;
   },
   async _job(ctx, v) {

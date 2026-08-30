@@ -3,19 +3,27 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { main } from "../src/cli.mjs";
+import { main, run as cliRun } from "../src/cli.mjs";
 import { createConcept } from "../src/concept.mjs";
 import { parseSummaryBody, renderSummaryBody } from "../src/summary.mjs";
 import { tmpBundle, tmpGitRepo, tmpDir } from "./helpers.mjs";
 process.env.MEMORY_SYNC_INLINE = "1";
 async function run(args, { stdin = "" } = {}) {
-  let out = "", err = "";
-  const w = process.stdout.write, e = process.stderr.write;
-  process.stdout.write = (s) => { out += s; return true; }; process.stderr.write = (s) => { err += s; return true; };
-  const code = await main([...args, "--stdin-text", stdin]).finally(() => { process.stdout.write = w; process.stderr.write = e; });
+  const { code, stdout: out, stderr: err } = await cliRun([...args, "--stdin-text", stdin]);
   let json = null; if (out) { try { json = JSON.parse(out); } catch { /* markdown output, e.g. --md */ } }
   return { code, out, err, json };
 }
+test("run returns collected output without touching process.stdout/stderr, and main() writes it through", async () => {
+  const b = tmpBundle();
+  const cwd = tmpDir();
+  const outWrite = process.stdout.write, errWrite = process.stderr.write;
+  const r = await cliRun(["--dir", b.root, "--cwd", cwd, "project-id", "--stdin-text", ""]);
+  assert.equal(process.stdout.write, outWrite);
+  assert.equal(process.stderr.write, errWrite);
+  assert.equal(r.code, 0);
+  assert.deepEqual(JSON.parse(r.stdout), { projectId: `local/${path.basename(cwd)}` });
+  assert.equal(r.stderr, "");
+});
 test("remember creates, revises by slug, refuses secrets, and the job updates index and commits", async () => {
   const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
   const base = ["--dir", b.root, "--cwd", repo, "--actor", "pi/kimi-k3"];

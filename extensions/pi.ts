@@ -2,12 +2,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Bundle } from "../src/bundle.mjs";
-import { main } from "../src/cli.mjs";
+import { run } from "../src/cli.mjs";
 import { recall } from "../src/recall.mjs";
 import { fold } from "../src/fold.mjs";
 import { projectIdFor } from "../src/project-id.mjs";
 import { spawnDetached } from "../src/git.mjs";
-import { readSettings, contextBlock, compactionFromSummary, summarizeCmd } from "./pi-core.mjs";
+import { readSettings, contextBlock, compactionFromSummary, summarizeCmd, snapshotIsStale } from "./pi-core.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -25,6 +25,7 @@ function foldSettings(settings: any): Record<string, number> {
 export default function memory(pi: ExtensionAPI): void {
   if ((process.env.MEMORY ?? "on") === "off") return;
   let snapshot = "";
+  let snapshotCapturedAt = 0;
   let settings: any = {};
   let bundle: Bundle;
   const session = (ctx: any) => `pi:session/${ctx.sessionManager.getSessionId()}`;
@@ -33,22 +34,31 @@ export default function memory(pi: ExtensionAPI): void {
   // clinepass model id "cline-pass/deepseek-v4-flash") would otherwise
   // produce an actor with two slashes and get refused on every write.
   const actor = (ctx: any) => `pi/${(ctx.model?.id ?? "unknown").replace(/\//g, ":")}`;
-  const refresh = (ctx: any) => { try { snapshot = bundle.exists() ? contextBlock(bundle, ctx.cwd, session(ctx)) : ""; } catch { snapshot = ""; } };
+  const refresh = (ctx: any) => {
+    try { snapshot = bundle.exists() ? contextBlock(bundle, ctx.cwd, session(ctx)) : ""; } catch { snapshot = ""; }
+    snapshotCapturedAt = Date.now();
+  };
+  // Never touches process.stdout/stderr: run() collects output into strings,
+  // so concurrent tool calls (pi's default parallel tool execution) can't
+  // race a shared stream monkeypatch.
   const cli = async (ctx: any, args: string[], stdin = "") => {
-    let out = ""; const w = process.stdout.write; const e = process.stderr.write;
-    process.stdout.write = (s: any) => { out += s; return true; }; process.stderr.write = (s: any) => { out += s; return true; };
-    const code = await main(["--dir", bundle.root, "--cwd", ctx.cwd, "--actor", actor(ctx), ...args, "--stdin-text", stdin]).finally(() => { process.stdout.write = w; process.stderr.write = e; });
-    return { code, out };
+    const r = await run(["--dir", bundle.root, "--cwd", ctx.cwd, "--actor", actor(ctx), ...args, "--stdin-text", stdin]);
+    return { code: r.code, out: r.stdout + r.stderr };
   };
 
   pi.on("session_start", async (_e, ctx) => {
     settings = readSettings(getAgentDir(), ctx.cwd);
     bundle = new Bundle(Bundle.resolveRoot({ dir: settings.dir }));
-    if (!bundle.exists()) { ctx.ui?.notify?.(`memory: no bundle at ${bundle.root}; run memory init`, "warning"); snapshot = ""; return; }
+    if (!bundle.exists()) { ctx.ui?.notify?.(`memory: no bundle at ${bundle.root}; run memory init`, "warning"); snapshot = ""; snapshotCapturedAt = Date.now(); return; }
     spawnDetached([BIN, "sync", "--dir", bundle.root, "--pull"]);
     refresh(ctx);
   });
-  pi.on("before_agent_start", async (event: any) => (snapshot ? { systemPrompt: `${event.systemPrompt}\n\n${snapshot}` } : undefined));
+  pi.on("before_agent_start", async (event: any, ctx) => {
+    // A snapshot captured yesterday (session left open overnight) is stale:
+    // refresh before appending so a new day's context isn't served stale.
+    if (snapshotIsStale(snapshotCapturedAt, Date.now())) refresh(ctx);
+    return snapshot ? { systemPrompt: `${event.systemPrompt}\n\n${snapshot}` } : undefined;
+  });
   pi.on("agent_settled", async (_e, ctx) => {
     if (!bundle?.exists() || process.env.MEMORY_FOLD === "off") return;
     const transcript = ctx.sessionManager.getSessionFile(); if (!transcript) return;
@@ -83,6 +93,8 @@ export default function memory(pi: ExtensionAPI): void {
   });
   pi.registerTool({
     name: "memory_recall", label: "Recall", description: "Search the memory bundle (bundle root and this project) by terms.",
+    promptSnippet: "Search the memory bundle for prior facts, decisions or corrections",
+    promptGuidelines: ["Use memory_recall before assuming project history or user preferences that might already be recorded, rather than guessing or re-deriving them from code."],
     parameters: Type.Object({ query: Type.String(), type: Type.Optional(Type.String()) }),
     async execute(_id, p: any, _s, _u, ctx) {
       const hits = recall(bundle, { projectId: projectIdFor(ctx.cwd), query: p.query, type: p.type }).slice(0, 10);
@@ -92,11 +104,15 @@ export default function memory(pi: ExtensionAPI): void {
   });
   pi.registerTool({
     name: "memory_deprecate", label: "Deprecate memory", description: "Retire a concept by slug or path; it leaves the index but stays on disk.",
+    promptSnippet: "Retire a memory concept that no longer applies",
+    promptGuidelines: ["Use memory_deprecate when a remembered fact is confirmed stale or superseded, instead of leaving it to mislead a later session."],
     parameters: Type.Object({ key: Type.String(), root: Type.Optional(Type.Boolean()) }),
     async execute(_id, p: any, _s, _u, ctx) { const r = await cli(ctx, ["deprecate", p.key, ...(p.root ? ["--root"] : [])]); if (r.code === 0) refresh(ctx); return { content: [{ type: "text", text: r.out }] }; },
   });
   pi.registerTool({
     name: "memory_recall_observation", label: "Recall observation", description: "Expand a [id] observation or reflection line from a session summary into its source transcript entries.",
+    promptSnippet: "Expand a session summary's [id] line into its source transcript entries",
+    promptGuidelines: ["Use memory_recall_observation when the exact wording or surrounding context behind a summarized [id] line matters, not just the one-line gist."],
     parameters: Type.Object({ id: Type.String() }),
     async execute(_id, p: any, _s, _u, ctx) { const r = await cli(ctx, ["recall-observation", p.id]); return { content: [{ type: "text", text: r.out }] }; },
   });
