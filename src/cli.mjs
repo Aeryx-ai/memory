@@ -9,7 +9,7 @@ import { createConcept, revise, deprecate, restore, renderConcept, validateConce
 import { slugify } from "./slug.mjs";
 import { writeIndex } from "./index-file.mjs";
 import { appendLog } from "./log-file.mjs";
-import { afterWrite } from "./jobs.mjs";
+import { afterWrite, runJobInline } from "./jobs.mjs";
 import { withLock, commitAll, sync } from "./git.mjs";
 import { renderContext } from "./context.mjs";
 import { recall } from "./recall.mjs";
@@ -17,14 +17,14 @@ import { check } from "./check.mjs";
 import { doctor } from "./doctor.mjs";
 import { fold, runFoldJob, markFoldError, utcMinute, sessionSummaryRel } from "./fold.mjs";
 import { detectFormat, readEntries } from "./transcript.mjs";
-import { parseSummaryBody } from "./summary.mjs";
+import { parseSummaryBody, isSessionSummaryFor } from "./summary.mjs";
 import { migrate as runMigrate } from "./migrate/index.mjs";
 
 const GLOBAL = { dir: { type: "string" }, cwd: { type: "string" }, actor: { type: "string" }, md: { type: "boolean" }, root: { type: "boolean" }, "stdin-text": { type: "string" } };
 const FOLD_OPTIONS = {
   session: { type: "string" }, transcript: { type: "string" }, format: { type: "string" }, finalize: { type: "boolean" },
   "summarize-cmd": { type: "string" },
-  observeAfterTokens: { type: "string" }, reflectAfterTokens: { type: "string" }, observationsMaxTokens: { type: "string" }, observationsTargetTokens: { type: "string" },
+  observeAfterTokens: { type: "string" }, reflectAfterTokens: { type: "string" }, observationsMaxTokens: { type: "string" }, observationsTargetTokens: { type: "string" }, observerMaxTokens: { type: "string" },
 };
 const COMMANDS = {
   init: { remote: { type: "string" } },
@@ -116,24 +116,18 @@ function underHome(p) {
 }
 function foldOpts(ctx, v) {
   const settings = {};
-  for (const k of ["observeAfterTokens", "reflectAfterTokens", "observationsMaxTokens", "observationsTargetTokens"]) {
+  for (const k of ["observeAfterTokens", "reflectAfterTokens", "observationsMaxTokens", "observationsTargetTokens", "observerMaxTokens"]) {
     if (v[k] !== undefined) settings[k] = Number(v[k]);
   }
   return { session: need(v, "session"), actor: ctx.actor, transcript: need(v, "transcript"), cwd: ctx.cwd, format: v.format, finalize: !!v.finalize, summarizeCmd: v["summarize-cmd"], settings };
 }
 
-export function runJobInline(bundle, dirRel, message) {
-  withLock(bundle.root, () => {
-    const dir = dirRel ? bundle.dir(dirRel.replace(/^projects\//, "")) : bundle.dir(null);
-    writeIndex(bundle, dir);
-    commitAll(bundle.root, message);
-    sync(bundle.root, { pull: false, push: true });
-  });
-}
+// afterWrite itself runs the job inline under MEMORY_SYNC_INLINE=1 (the
+// test-only inline switch); this wrapper only adds the log append every
+// concept write needs first.
 function afterConceptWrite(ctx, dir, { kind, concept, rel, at, message }) {
   appendLog(ctx.bundle, dir, { kind, concept, rel, actor: ctx.actor, at });
-  if (process.env.MEMORY_SYNC_INLINE === "1") runJobInline(ctx.bundle, dir.rel, message);
-  else afterWrite(ctx.bundle, { dirRel: dir.rel, message });
+  afterWrite(ctx.bundle, { dirRel: dir.rel, message });
 }
 
 const HANDLERS = {
@@ -142,7 +136,8 @@ const HANDLERS = {
   async remember(ctx, v) {
     const dir = targetDir(ctx, v);
     const type = need(v, "type"), title = need(v, "title");
-    const body = v.body ?? (await ctx.readStdin());
+    const bodyGiven = v.body !== undefined;
+    const body = bodyGiven ? v.body : await ctx.readStdin();
     const at = ctx.now();
     const sources = (v.source ?? []).map((resource) => ({ resource }));
     const tags = v.tags ? v.tags.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
@@ -150,8 +145,13 @@ const HANDLERS = {
     let existing = null;
     try { existing = ctx.bundle.readConcept(rel); }
     catch (e) { if (!(e instanceof MemoryError) || e.code !== "notfound") throw e; }
+    // On revise, an empty body reached only through the stdin fallback (no
+    // --body, no piped input) means "no body was supplied", not "wipe the
+    // body": pass undefined so revise() leaves the existing body alone. An
+    // explicit --body "" and a fresh create both still write an empty body.
+    const reviseBody = !bodyGiven && body === "" ? undefined : body;
     const concept = existing
-      ? revise(existing, { title, description: v.description, tags, body, sources, status: v.status }, ctx.actor, at)
+      ? revise(existing, { title, description: v.description, tags, body: reviseBody, sources, status: v.status }, ctx.actor, at)
       : createConcept({ type, title, description: v.description, tags: tags ?? [], status: v.status, actor: ctx.actor, at, sources, body });
     validateConcept(concept, { isRoot: dir.isRoot });
     ctx.bundle.writeConcept(rel, concept);
@@ -223,7 +223,7 @@ const HANDLERS = {
     const session = need(v, "session");
     const body = await ctx.readStdin();
     const at = ctx.now();
-    const existing = ctx.bundle.listConcepts(dir).find((e) => e.concept.type === "Session Summary" && e.concept.sources.some((s) => s.resource === session));
+    const existing = ctx.bundle.listConcepts(dir).find((e) => isSessionSummaryFor(e.concept, session));
     if (existing && parseSummaryBody(existing.concept.body).observations.length) {
       throw new MemoryError("refused", `session ${session} already has folded observations at ${existing.rel}; summarize would overwrite them`);
     }
@@ -237,8 +237,11 @@ const HANDLERS = {
   },
   async "recall-observation"(ctx, v, [id]) {
     if (!id) throw new MemoryError("usage", "observation id required");
-    const dir = targetDir(ctx, v);
-    for (const { concept } of ctx.bundle.listConcepts(dir).filter((e) => e.concept.type === "Session Summary")) {
+    requireBundle(ctx.bundle);
+    // Root plus project by default, same as recall: a session's Session
+    // Summary can live at either level depending on where it was folded.
+    const dirs = [ctx.bundle.dir(null), ctx.bundle.dir(projectIdFor(ctx.cwd))];
+    for (const dir of dirs) for (const { concept } of ctx.bundle.listConcepts(dir).filter((e) => e.concept.type === "Session Summary")) {
       const body = parseSummaryBody(concept.body);
       const obs = body.observations.find((o) => o.id === id);
       const ref = body.reflections.find((r) => r.id === id);

@@ -9,11 +9,19 @@ import { appendLog } from "./log-file.mjs";
 import { afterWrite } from "./jobs.mjs";
 import { spawnDetached, withLock } from "./git.mjs";
 import { readDelta, detectFormat, serializeEntries } from "./transcript.mjs";
-import { parseSummaryBody, renderSummaryBody, pruneObservations, newId, estimateTokens, RELEVANCE } from "./summary.mjs";
+import { parseSummaryBody, renderSummaryBody, pruneObservations, newId, estimateTokens, RELEVANCE, isSessionSummaryFor } from "./summary.mjs";
 import { findSecret } from "./secrets.mjs";
 import { slugify } from "./slug.mjs";
 
-export const DEFAULTS = { observeAfterTokens: 8000, reflectAfterTokens: 20000, observationsMaxTokens: 20000, observationsTargetTokens: 10000 };
+export const DEFAULTS = { observeAfterTokens: 8000, reflectAfterTokens: 20000, observationsMaxTokens: 20000, observationsTargetTokens: 10000, observerMaxTokens: 60000 };
+// Prompt-injection bounds (see the spec's Trust boundary paragraph): an
+// observation line is capped so one steered line can't smuggle an
+// unbounded amount of text into every later session's context, and a
+// single fold can add only so many observations regardless of how long
+// the summarizer's output runs.
+const OBSERVATION_MAX_CHARS = 240;
+const MAX_OBSERVATIONS_PER_FOLD = 40;
+const GIVE_UP_AFTER_FAILURES = 3;
 const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "memory.mjs");
 const sessionSlug = (s) => s.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
 
@@ -55,9 +63,11 @@ export function markFoldError(bundle, session, message) {
   saveState(bundle, state);
 }
 
-// "<YYYY-MM-DD HH:MM UTC>", used for the Session Summary title so it's stable
-// regardless of the machine's local timezone.
-export function utcMinute(iso) { return `${iso.slice(0, 16).replace("T", " ")} UTC`; }
+// "YYYY-MM-DD HH:MM" in UTC, regardless of the machine's local timezone: the
+// bare form an observation's `at` field uses (matches summary.mjs's OBS
+// regex), and the Session Summary title's "<...> UTC" form built on top of it.
+function utcMinuteRaw(iso) { return iso.slice(0, 16).replace("T", " "); }
+export function utcMinute(iso) { return `${utcMinuteRaw(iso)} UTC`; }
 export function sessionSummaryRel(bundle, dir, at, actor) {
   const stamp = at.replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
   return bundle.conceptRel(dir, "Session Summary", `${stamp}-${slugify(actor)}`);
@@ -86,13 +96,23 @@ export function fold(bundle, opts) {
 
 function runSummarizer(cmd, prompt) {
   const file = path.join(os.tmpdir(), `memory-prompt-${process.pid}-${Date.now()}.txt`);
-  fs.writeFileSync(file, prompt);
+  fs.writeFileSync(file, prompt, { mode: 0o600 });
   try { return execSync(cmd, { input: prompt, encoding: "utf8", env: { ...process.env, MEMORY_PROMPT_FILE: file }, timeout: 180_000, maxBuffer: 16 * 1024 * 1024, stdio: ["pipe", "pipe", "ignore"] }); }
   finally { fs.rmSync(file, { force: true }); }
 }
 const OBS_OUT = /^\[(low|medium|high|critical)\]\s+(.+?)\s*\|\s*([A-Za-z0-9,_-]+)\s*$/;
 const REF_OUT = /^(.+?)\s*<-\s*([a-f0-9]{12}(?:,[a-f0-9]{12})*)\s*$/;
-const minute = (iso) => { const d = new Date(iso); const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+// Drop the oldest entries until the serialized delta fits observerMaxTokens,
+// so one long-idle session catching up in a single fold can't blow the
+// observer prompt up without bound. Keeps at least one entry.
+function capDelta(entries, maxTokens) {
+  let kept = entries;
+  while (kept.length > 1 && estimateTokens(serializeEntries(kept)) > maxTokens) kept = kept.slice(1);
+  return kept;
+}
+function truncateObservation(content) {
+  return content.length > OBSERVATION_MAX_CHARS ? `${content.slice(0, OBSERVATION_MAX_CHARS)}…` : content;
+}
 
 export function runFoldJob(bundle, opts) {
   const { session, transcript, finalize = false } = opts;
@@ -131,6 +151,25 @@ function promoteToStable(bundle, dir, state, rel, concept, actor, now, session) 
   return { observations: 0, reflected: false, dropped: 0 };
 }
 
+// A summarizer that keeps throwing must not let the delta grow forever: on
+// the first two consecutive failures just record why and leave the
+// checkpoint where it is (the same delta is retried next fold). On the
+// third, give up on this delta specifically: advance transcriptBytes past
+// it so it stops growing, note that it was abandoned, and reset the
+// counter. A successful observer call anywhere resets it back to 0.
+function giveUpOrRetry(bundle, state, rel, error, bytes, now) {
+  state.failures = (state.failures ?? 0) + 1;
+  if (state.failures >= GIVE_UP_AFTER_FAILURES) {
+    state.lastError = { at: now, message: `${error.message} (delta abandoned after ${GIVE_UP_AFTER_FAILURES} consecutive summarizer failures)` };
+    state.failures = 0;
+    Object.assign(state, { rel, transcriptBytes: bytes, foldedAt: now });
+  } else {
+    state.lastError = { at: now, message: error.message };
+  }
+  saveState(bundle, state);
+  return { observations: 0, reflected: false, dropped: 0, error: state.lastError.message };
+}
+
 function runFold(bundle, opts) {
   const { session, actor, cwd, finalize = false, summarizeCmd } = opts;
   const state = loadState(bundle, session);
@@ -138,6 +177,13 @@ function runFold(bundle, opts) {
   const now = new Date().toISOString();
   let rel = state.rel, concept;
   if (rel) { try { concept = bundle.readConcept(rel); } catch { rel = null; } }
+  if (!rel) {
+    // The checkpoint's rel can go missing (state lost, or the session resumed
+    // on another machine with a fresh checkpoint): recover the existing
+    // Session Summary for this session rather than creating a second one.
+    const existing = bundle.listConcepts(dir).find((e) => isSessionSummaryFor(e.concept, session));
+    if (existing) { rel = existing.rel; concept = existing.concept; }
+  }
 
   if (!summarizeCmd) {
     // finalize:true with no summarizer configured: promote whatever draft
@@ -166,14 +212,24 @@ function runFold(bundle, opts) {
   const body = parseSummaryBody(concept.body);
   const added = [], sources = [];
   if (entries.length) {
-    const out = runSummarizer(summarizeCmd, OBSERVER_PROMPT(body.reflections, body.observations.slice(-20), serializeEntries(entries)));
-    const byId = new Map(entries.map((e) => [e.id, e]));
-    for (const line of out.split("\n")) {
+    const capped = capDelta(entries, settings.observerMaxTokens);
+    let out;
+    try {
+      out = runSummarizer(summarizeCmd, OBSERVER_PROMPT(body.reflections, body.observations.slice(-20), serializeEntries(capped)));
+    } catch (e) {
+      return giveUpOrRetry(bundle, state, rel, e, bytes, now);
+    }
+    state.failures = 0; // a successful observer call clears any prior failure streak
+    const byId = new Map(capped.map((e) => [e.id, e]));
+    // At most MAX_OBSERVATIONS_PER_FOLD observations per fold, regardless of
+    // how many lines the summarizer returns.
+    for (const line of out.split("\n").slice(0, MAX_OBSERVATIONS_PER_FOLD)) {
       const m = OBS_OUT.exec(line.trim()); if (!m) continue;
       const ids = m[3].split(",").filter((id) => byId.has(id)); if (!ids.length) continue;
-      if (findSecret(m[2])) continue; // never persist a secret into the concept
+      const content = truncateObservation(m[2]);
+      if (findSecret(content)) continue; // never persist a secret into the concept
       const id = newId();
-      added.push({ id, at: minute(byId.get(ids[0]).at), relevance: m[1], content: m[2] });
+      added.push({ id, at: utcMinuteRaw(byId.get(ids[0]).at ?? now), relevance: m[1], content });
       sources.push({ resource: ids.join(","), id });
     }
   }
@@ -181,27 +237,39 @@ function runFold(bundle, opts) {
   state.observedSinceReflect = (state.observedSinceReflect ?? 0) + estimateTokens(added.map((o) => o.content).join("\n"));
   let reflected = false;
   if (body.observations.length && state.observedSinceReflect >= settings.reflectAfterTokens) {
-    const out = runSummarizer(summarizeCmd, REFLECTOR_PROMPT(body.reflections, body.observations));
-    const known = new Set(body.observations.map((o) => o.id));
-    const next = [];
-    for (const line of out.split("\n")) {
-      const m = REF_OUT.exec(line.trim()); if (!m) continue;
-      const content = m[1].trim(); if (!content) continue;
-      if (findSecret(content)) continue; // never persist a secret into a reflection either
-      // Supports that no longer exist (pruned away) don't invalidate the
-      // reflection itself; keep it with whatever supports still resolve.
-      const supports = m[2].split(",").filter((id) => known.has(id));
-      next.push({ id: newId(), content, supports });
+    try {
+      const out = runSummarizer(summarizeCmd, REFLECTOR_PROMPT(body.reflections, body.observations));
+      const known = new Set(body.observations.map((o) => o.id));
+      const next = [];
+      for (const line of out.split("\n")) {
+        const m = REF_OUT.exec(line.trim()); if (!m) continue;
+        const content = m[1].trim(); if (!content) continue;
+        if (findSecret(content)) continue; // never persist a secret into a reflection either
+        // Supports that no longer exist (pruned away) don't invalidate the
+        // reflection itself; keep it with whatever supports still resolve.
+        const supports = m[2].split(",").filter((id) => known.has(id));
+        next.push({ id: newId(), content, supports });
+      }
+      if (next.length) { body.reflections = next; reflected = true; }
+    } catch (e) {
+      // The reflector is a bonus pass over already-collected observations; a
+      // failure here must not wedge the checkpoint the way an observer
+      // failure would, so it's logged and swallowed, not counted against
+      // the give-up streak.
+      state.lastError = { at: now, message: `reflector: ${e.message}` };
     }
-    // The reflector ran either way; don't let a garbled response re-trigger it
-    // on the same backlog forever.
+    // The reflector ran either way; don't let a garbled response (or a failed
+    // call) re-trigger it on the same backlog forever.
     state.observedSinceReflect = 0;
-    if (next.length) { body.reflections = next; reflected = true; }
   }
+  // Pin sources whose id a surviving reflection still cites via supports, so
+  // pruning the observation it was drawn from doesn't strand
+  // recall-observation on that reflection with no source to resolve.
+  const pinned = new Set(body.reflections.flatMap((r) => r.supports));
   const pruned = pruneObservations({ observations: body.observations, reflections: body.reflections, maxTokens: settings.observationsMaxTokens, targetTokens: settings.observationsTargetTokens });
   body.observations = pruned.observations;
   const dropped = new Set(pruned.dropped);
-  const keptSources = concept.sources.filter((s) => !s.id || !dropped.has(s.id));
+  const keptSources = concept.sources.filter((s) => !s.id || pinned.has(s.id) || !dropped.has(s.id));
 
   let revised;
   try {

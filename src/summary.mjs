@@ -4,6 +4,13 @@ const OBS = /^\[([a-f0-9]{12})\] (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) \[(low|medium|h
 const REF = /^\[([a-f0-9]{12})\] (.+?)(?: <- ([a-f0-9]{12}(?:,[a-f0-9]{12})*))?$/;
 export function newId() { return randomBytes(6).toString("hex"); }
 export function estimateTokens(text) { return Math.ceil(Buffer.byteLength(text) / 4); }
+// The one place that decides whether a concept is the running Session Summary
+// for a given session id, so context.mjs (own-session reordering), the
+// summarize handler, fold.mjs (checkpoint recovery) and the pi extension
+// (compaction) never each grow their own copy of this predicate.
+export function isSessionSummaryFor(concept, session) {
+  return concept.type === "Session Summary" && concept.sources.some((s) => s.resource === session);
+}
 export function parseSummaryBody(body) {
   const out = { reflections: [], observations: [] };
   let section = null;

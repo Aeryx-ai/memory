@@ -20,7 +20,10 @@ export function doctor(bundle, { env = process.env, home = os.homedir() } = {}) 
       if (!name.endsWith(".json")) continue;
       try {
         const state = JSON.parse(fs.readFileSync(path.join(stateDir, name), "utf8"));
-        if (state.lastError) add("warn", `fold error for session ${state.session ?? name}: ${state.lastError.message}`);
+        if (state.lastError) {
+          const abandoned = (state.failures ?? 0) >= 3 || /abandoned/i.test(state.lastError.message ?? "");
+          add(abandoned ? "fail" : "warn", `fold error for session ${state.session ?? name}: ${state.lastError.message}`);
+        }
       } catch { /* not a fold checkpoint, or unreadable; not doctor's concern */ }
     }
   }

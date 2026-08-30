@@ -80,3 +80,21 @@ test("doctor warns for every .state/*.json checkpoint carrying a lastError, nami
   const r2 = doctor(b, { env, home });
   assert.equal(r2.findings.filter((f) => f.message.startsWith("fold error")).length, 1);
 });
+
+test("doctor reports fail, not warn, once a checkpoint has given up on an abandoned delta", () => {
+  const b = tmpBundle();
+  const env = { PATH: pathWithOnlyGit() };
+  const home = tmpDir("home-");
+  fs.writeFileSync(b.statePath("pi-session-by-count.json"), JSON.stringify({
+    session: "pi:session/by-count", transcriptBytes: 500, foldedAt: null, rel: "projects/x/session-summaries/y.md", observedSinceReflect: 0, failures: 3,
+    lastError: { at: "2026-08-29T00:00:00.000Z", message: "Command failed: false" },
+  }));
+  fs.writeFileSync(b.statePath("pi-session-by-message.json"), JSON.stringify({
+    session: "pi:session/by-message", transcriptBytes: 500, foldedAt: null, rel: "projects/x/session-summaries/z.md", observedSinceReflect: 0, failures: 0,
+    lastError: { at: "2026-08-29T00:00:00.000Z", message: "Command failed: false (delta abandoned after 3 consecutive summarizer failures)" },
+  }));
+  const r = doctor(b, { env, home });
+  assert.equal(r.ok, false);
+  assert.ok(r.findings.some((f) => f.level === "fail" && f.message.includes("pi:session/by-count")));
+  assert.ok(r.findings.some((f) => f.level === "fail" && f.message.includes("pi:session/by-message")));
+});

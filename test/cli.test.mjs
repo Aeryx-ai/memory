@@ -42,6 +42,26 @@ test("remember creates, revises by slug, refuses secrets, and the job updates in
   r = await run([...base, "remember", "--root", "--type", "User", "--title", "Me"], { stdin: "x" });
   assert.equal(r.json.rel, "user/me.md");
 });
+test("remember on revise: empty stdin with no --body keeps the existing body; explicit --body \"\" still wipes it; create allows an empty body", async () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const base = ["--dir", b.root, "--cwd", repo];
+  let r = await run([...base, "remember", "--type", "Feedback", "--title", "Keep Body", "--description", "d1"], { stdin: "Original body.\n" });
+  assert.equal(r.code, 0);
+  const rel = r.json.rel;
+  // re-run with only --description and no piped body (empty stdin): must not wipe the body
+  r = await run([...base, "remember", "--type", "Feedback", "--title", "Keep Body", "--description", "d2"]);
+  assert.equal(r.code, 0);
+  assert.equal(b.readConcept(rel).body, "Original body.\n");
+  assert.equal(b.readConcept(rel).description, "d2");
+  // an explicit --body "" is a real instruction to wipe it
+  r = await run([...base, "remember", "--type", "Feedback", "--title", "Keep Body", "--body", ""]);
+  assert.equal(r.code, 0);
+  assert.equal(b.readConcept(rel).body, "");
+  // a fresh create with no --body and empty stdin still creates with an empty body, not refused
+  r = await run([...base, "remember", "--type", "Feedback", "--title", "Fresh Empty"]);
+  assert.equal(r.code, 0);
+  assert.equal(b.readConcept(r.json.rel).body, "");
+});
 test("deprecate, restore, show, project-id, usage errors", async () => {
   const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
   const base = ["--dir", b.root, "--cwd", repo];
@@ -211,4 +231,18 @@ test("recall-observation reports a reason when a transcript source resolves outs
   assert.equal(r.code, 0);
   assert.deepEqual(r.json.entries, []);
   assert.equal(r.json.reason, "transcript outside home");
+});
+test("recall-observation also searches the bundle root, not just the cwd's project", async () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const obsId = "bbbbbbbbbbbb";
+  const body = renderSummaryBody({ reflections: [], observations: [{ id: obsId, at: "2026-08-27 23:09", relevance: "high", content: "root level fact" }] });
+  const concept = createConcept({
+    type: "Session Summary", title: "Root Summary", description: "Session pi:session/root", status: "draft", actor: "pi/kimi-k3", at: "2026-08-27T23:09:00.000Z",
+    sources: [{ resource: "pi:session/root" }], body,
+  });
+  b.writeConcept(b.conceptRel(b.dir(null), "Session Summary", "root-summary"), concept);
+  // cwd is a project (not --root); the observation lives only at the bundle root
+  const r = await run(["--dir", b.root, "--cwd", repo, "recall-observation", obsId]);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.id, obsId);
 });

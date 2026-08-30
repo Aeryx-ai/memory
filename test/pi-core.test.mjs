@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { readSettings, contextBlock, compactionFromSummary, summarizeCmd, snapshotIsStale } from "../extensions/pi-core.mjs";
 import { createConcept } from "../src/concept.mjs";
+import { projectIdFor } from "../src/project-id.mjs";
 import { tmpBundle, tmpDir } from "./helpers.mjs";
 test("settings merge project over global", () => {
   const agent = tmpDir(), cwd = tmpDir();
@@ -15,6 +16,15 @@ test("context block wraps renderContext and names the tools", () => {
   const b = tmpBundle();
   const text = contextBlock(b, b.root, "pi:session/x");
   assert.match(text, /<memory-context/); assert.match(text, /memory_remember/);
+});
+test("context block passes a 200000 byte budget, so an oversized bundle gets truncated instead of injected whole", () => {
+  const b = tmpBundle();
+  const projectId = projectIdFor(b.root);
+  const proj = b.dir(projectId);
+  const bigBody = `# Reflections\n\n# Observations\n${"x".repeat(300000)}\n`;
+  b.writeConcept(b.conceptRel(proj, "Session Summary", "huge"), createConcept({ type: "Session Summary", title: "huge", actor: "pi/m", at: "2026-08-29T00:00:00Z", sources: [{ resource: "pi:session/huge" }], body: bigBody }));
+  const text = contextBlock(b, b.root, "pi:session/huge");
+  assert.ok(Buffer.byteLength(text) < 205000, `expected the 200000 byte budget to truncate, got ${Buffer.byteLength(text)} bytes`);
 });
 test("compaction from summary uses the session's Session Summary or returns null", () => {
   const b = tmpBundle(); const dir = b.dir("local/x");
