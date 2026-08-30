@@ -10,7 +10,10 @@ export function plan({ home }) {
     const file = path.join(daily, name);
     const day = name.slice(0, 10);
     const mtime = fs.statSync(file).mtime.toISOString();
-    const lines = fs.readFileSync(file, "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("<!--") && !l.startsWith("#"));
+    // Drop the HTML timestamp comment and real markdown headings ("# Notes"),
+    // but keep tag-prefixed content lines like "#decision ..." — those carry
+    // the actual observation, not a section break.
+    const lines = fs.readFileSync(file, "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("<!--") && !/^#{1,6}\s/.test(l));
     const observations = lines.map((l) => ({ id: newId(), at: `${day} 00:00`, relevance: "medium", content: l }));
     items.push({
       projectId: null, type: "Session Summary", title: `${day} pi-memory daily log`,

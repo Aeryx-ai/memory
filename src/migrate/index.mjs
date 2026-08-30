@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { MemoryError } from "../errors.mjs";
 import { createConcept, revise, validateConcept } from "../concept.mjs";
 import { slugify } from "../slug.mjs";
 import { projectIdFor, localProjectId } from "../project-id.mjs";
@@ -63,8 +64,13 @@ export function wikiToLinks(body, slugs) {
 
 export function migrate(bundle, store, { home = os.homedir(), projectsRoot = path.join(home, "projects"), dryRun = false } = {}) {
   const stores = store === "all" ? Object.keys(STORES) : [store];
-  const result = { store, created: 0, updated: 0, skipped: 0, report: [] };
+  const result = { store, created: 0, updated: 0, skipped: 0, refused: 0, report: [] };
   const touched = new Set();
+  // Rels this run has already committed to creating, even though dryRun means
+  // nothing has actually landed on disk yet; without this a second colliding
+  // item in the same dry run would compute the same rel as the first instead
+  // of previewing the "-2" suffix a real run would give it.
+  const planned = new Set();
   for (const name of stores) {
     if (!STORES[name]) throw new Error(`unknown store ${name}`);
     const { items, report } = STORES[name].plan({ home, projectsRoot });
@@ -76,13 +82,22 @@ export function migrate(bundle, store, { home = os.homedir(), projectsRoot = pat
       if (existing) {
         const src = existing.concept.sources.find((s) => s.resource === item.sourceResource);
         if ((src.last_modified ?? "") >= item.lastModified) { result.skipped++; continue; }
+        let next;
+        try {
+          next = revise(
+            { ...existing.concept, sources: existing.concept.sources.map((s) => (s === src ? { ...s, last_modified: item.lastModified } : s)) },
+            { body: item.body, description: item.description, tags: item.tags },
+            actor, item.at,
+          );
+        } catch (e) {
+          if (e instanceof MemoryError && e.code === "refused") {
+            result.refused++; result.report.push(`skip ${existing.rel}: ${e.message}`);
+            continue;
+          }
+          throw e;
+        }
         result.updated++; result.report.push(`update ${existing.rel}`);
         if (dryRun) continue;
-        const next = revise(
-          { ...existing.concept, sources: existing.concept.sources.map((s) => (s === src ? { ...s, last_modified: item.lastModified } : s)) },
-          { body: item.body, description: item.description, tags: item.tags },
-          actor, item.at,
-        );
         bundle.writeConcept(existing.rel, next);
         appendLog(bundle, dir, { kind: "Update", concept: next, rel: existing.rel, actor, at: item.at });
         touched.add(dir.rel);
@@ -90,14 +105,24 @@ export function migrate(bundle, store, { home = os.homedir(), projectsRoot = pat
       }
       const slug = slugify(item.title);
       let rel = bundle.conceptRel(dir, item.type, slug);
-      for (let n = 2; bundle.read(rel) != null; n++) rel = bundle.conceptRel(dir, item.type, `${slug}-${n}`);
+      for (let n = 2; bundle.read(rel) != null || planned.has(rel); n++) rel = bundle.conceptRel(dir, item.type, `${slug}-${n}`);
+      let concept;
+      try {
+        concept = createConcept({
+          type: item.type, title: item.title, description: item.description, tags: item.tags ?? [],
+          actor, at: item.at, sources: [{ resource: item.sourceResource, last_modified: item.lastModified }], body: item.body,
+        });
+        validateConcept(concept, { isRoot: dir.isRoot });
+      } catch (e) {
+        if (e instanceof MemoryError && e.code === "refused") {
+          result.refused++; result.report.push(`skip ${rel}: ${e.message}`);
+          continue;
+        }
+        throw e;
+      }
+      planned.add(rel);
       result.created++; result.report.push(`create ${rel}`);
       if (dryRun) continue;
-      const concept = createConcept({
-        type: item.type, title: item.title, description: item.description, tags: item.tags ?? [],
-        actor, at: item.at, sources: [{ resource: item.sourceResource, last_modified: item.lastModified }], body: item.body,
-      });
-      validateConcept(concept, { isRoot: dir.isRoot });
       bundle.writeConcept(rel, concept);
       appendLog(bundle, dir, { kind: "Creation", concept, rel, actor, at: item.at });
       touched.add(dir.rel);
