@@ -141,7 +141,7 @@ Registered by the package's `pi.extensions` entry.
 
 `claude-plugin/` in the memory repo. Requires `npm i -g @aeryx/memory`; `doctor` says so when the binary is missing.
 
-- `SessionStart` (startup, resume, clear, compact): spawn detached `memory sync --pull`, print `memory context --md` as `additionalContext`, followed by the usage note (remember with `memory remember …` through Bash, recall with `memory recall`).
+- `SessionStart` (startup, resume, clear, compact): spawn detached `memory sync --pull`, print `memory context --session <id> --budget 200000` as `additionalContext`, followed by the usage note (remember with `memory remember …` through Bash, recall with `memory recall`).
 - `Stop` (`async: true`): `memory fold --session claude-code:session/<id> --transcript <transcript_path> --summarize-cmd "claude -p --model claude-haiku-4-5-20251001"`. Same OAuth, no key. Whether a detached `claude -p` completes after the hook exits is the first thing the plan verifies.
 - `PreCompact`: emit `compactionInstructions` naming the running summary and limiting the native pass to recent turns.
 - `SessionStart` with trigger `compact`: `memory context --session <id>` so the running summary leads the post-compaction context.
