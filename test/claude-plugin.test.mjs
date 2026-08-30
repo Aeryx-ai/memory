@@ -20,17 +20,33 @@ test("session-start emits additionalContext with the memory block", () => {
   assert.match(out.hookSpecificOutput.additionalContext, /<memory-context .*project="github.com\/a\/b"/);
   assert.match(out.hookSpecificOutput.additionalContext, /memory remember --type/);
 });
-test("stop runs fold and exits 0 quickly; pre-compact emits instructions; session-end finalizes", () => {
+test("stop runs fold and exits 0 quickly; session-end finalizes", () => {
   const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
   const transcript = path.join(import.meta.dirname, "fixtures", "transcripts", "claude.jsonl");
+  const summarize = "cat >/dev/null; echo '[low] noop | 2a55d202-0256-4c6a-acb8-d2c40a35847f'";
   const t0 = Date.now();
-  run("stop.sh", { session_id: "f4b47d50", cwd: repo, transcript_path: transcript, stop_hook_active: false }, { MEMORY_DIR: b.root, MEMORY_SUMMARIZE_CMD: "cat >/dev/null; echo '[low] noop | 2a55d202-0256-4c6a-acb8-d2c40a35847f'" });
+  // This fixture transcript is small enough to stay below stop.sh's default
+  // observe-after threshold, so this fold skips; the timing bound is the
+  // point of this call, not the summary it doesn't yet create.
+  run("stop.sh", { session_id: "f4b47d50", cwd: repo, transcript_path: transcript, stop_hook_active: false }, { MEMORY_DIR: b.root, MEMORY_SUMMARIZE_CMD: summarize });
   assert.ok(Date.now() - t0 < 5000);
-  const pc = JSON.parse(run("pre-compact.sh", { session_id: "f4b47d50", cwd: repo, trigger: "auto" }, { MEMORY_DIR: b.root }));
-  assert.match(pc.hookSpecificOutput.compactionInstructions, /running session summary/i);
-  run("session-end.sh", { session_id: "f4b47d50", cwd: repo, transcript_path: transcript, trigger: "other" }, { MEMORY_DIR: b.root, MEMORY_SUMMARIZE_CMD: "cat >/dev/null; echo '[low] noop | 2a55d202-0256-4c6a-acb8-d2c40a35847f'" });
+  run("session-end.sh", { session_id: "f4b47d50", cwd: repo, transcript_path: transcript, trigger: "other" }, { MEMORY_DIR: b.root, MEMORY_SUMMARIZE_CMD: summarize });
   const sums = b.listConcepts(b.dir("github.com/a/b")).filter((e) => e.concept.type === "Session Summary");
   assert.equal(sums.length, 1); assert.equal(sums[0].concept.status, "stable");
+});
+test("pre-compact emits instructions once this session has a running Session Summary", () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const transcript = path.join(import.meta.dirname, "fixtures", "transcripts", "claude.jsonl");
+  const summarize = "cat >/dev/null; echo '[low] noop | 2a55d202-0256-4c6a-acb8-d2c40a35847f'";
+  // --finalize (session-end.sh) folds regardless of size, unlike stop.sh.
+  run("session-end.sh", { session_id: "f4b47d50", cwd: repo, transcript_path: transcript, trigger: "other" }, { MEMORY_DIR: b.root, MEMORY_SUMMARIZE_CMD: summarize });
+  const pc = JSON.parse(run("pre-compact.sh", { session_id: "f4b47d50", cwd: repo, trigger: "auto" }, { MEMORY_DIR: b.root }));
+  assert.match(pc.hookSpecificOutput.compactionInstructions, /running session summary/i);
+});
+test("pre-compact prints nothing and exits 0 when this session has no running Session Summary yet", () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const out = run("pre-compact.sh", { session_id: "brand-new", cwd: repo, trigger: "auto" }, { MEMORY_DIR: b.root });
+  assert.equal(out, "");
 });
 const SCRIPTS = ["session-start.sh", "stop.sh", "pre-compact.sh", "session-end.sh"];
 test("all four hooks exit 0 with empty stdout when MEMORY=off", () => {
