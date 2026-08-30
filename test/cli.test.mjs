@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { main } from "../src/cli.mjs";
 import { tmpBundle, tmpGitRepo, tmpDir } from "./helpers.mjs";
 process.env.MEMORY_SYNC_INLINE = "1";
@@ -104,6 +105,29 @@ test("sync without a remote reports no pull or push", async () => {
   const r = await run(["--dir", b.root, "sync"]);
   assert.equal(r.code, 0);
   assert.deepEqual(r.json, { pulled: false, pushed: false, conflict: false });
+});
+test("sync pulls a concept pushed from elsewhere and pushes the regenerated index back", async () => {
+  const b = tmpBundle();
+  const bare = tmpDir("bare-");
+  execFileSync("git", ["init", "-q", "--bare", "-b", "main", bare]);
+  execFileSync("git", ["remote", "add", "origin", bare], { cwd: b.root });
+  let r = await run(["--dir", b.root, "sync", "--push"]);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.pushed, true);
+
+  // a second clone commits and pushes a new concept directly, bypassing this bundle
+  const clone = tmpDir("clone-");
+  execFileSync("git", ["clone", "-q", bare, clone]);
+  fs.mkdirSync(path.join(clone, "feedback"), { recursive: true });
+  fs.writeFileSync(path.join(clone, "feedback", "x.md"), "---\ntype: Feedback\ntitle: X\nstatus: stable\ngenerated: { by: human:guy, at: 2026-08-03T00:00:00Z }\n---\n");
+  execFileSync("git", ["add", "-A"], { cwd: clone });
+  execFileSync("git", ["-c", "user.name=test", "-c", "user.email=test@localhost", "commit", "-q", "-m", "add x"], { cwd: clone });
+  execFileSync("git", ["push", "-q", "origin", "main"], { cwd: clone });
+
+  r = await run(["--dir", b.root, "sync"]);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json, { pulled: true, pushed: true, conflict: false });
+  assert.match(b.read("index.md"), /\[X\]\(feedback\/x\.md\)/);
 });
 test("doctor exit code with a temp HOME", async () => {
   const b = tmpBundle();

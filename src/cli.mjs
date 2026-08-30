@@ -144,7 +144,10 @@ const HANDLERS = {
       commitAll(ctx.bundle.root, "memory: sync");
       r = sync(ctx.bundle.root, { pull: both || !!v.pull, push: both || !!v.push });
       if (r.pulled) for (const d of ctx.bundle.dirs()) writeIndex(ctx.bundle, d);
-      if (r.pulled && commitAll(ctx.bundle.root, "memory: regenerate index after pull")) sync(ctx.bundle.root, { pull: false, push: both || !!v.push });
+      if (r.pulled && commitAll(ctx.bundle.root, "memory: regenerate index after pull")) {
+        const second = sync(ctx.bundle.root, { pull: false, push: both || !!v.push });
+        r = { ...r, pushed: second.pushed, conflict: r.conflict || second.conflict };
+      }
     });
     if (!ran) return { skipped: true };
     if (r.conflict) throw new MemoryError("sync", "rebase conflict; resolve in the bundle by hand");
