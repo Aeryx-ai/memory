@@ -1,0 +1,4 @@
+{"type":"session","version":3,"id":"01a0457b-a148-7e9e-8589-508eeee447e0","timestamp":"2026-08-27T23:08:45.256Z","cwd":"/tmp/x"}
+{"type":"message","id":"a1b2c3d4","parentId":null,"timestamp":"2026-08-27T23:09:00.000Z","message":{"role":"user","content":[{"type":"text","text":"use pnpm here, never npm"}]}}
+{"type":"message","id":"b2c3d4e5","parentId":"a1b2c3d4","timestamp":"2026-08-27T23:09:05.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"secret thoughts"},{"type":"text","text":"Noted."},{"type":"toolCall","id":"t1","name":"bash","arguments":{"command":"pnpm -v"}}]}}
+{"type":"message","id":"c3d4e5f6","parentId":"b2c3d4e5","timestamp":"2026-08-27T23:09:06.000Z","message":{"role":"toolResult","toolCallId":"t1","content":[{"type":"text","text":"9.0.0"}]}}

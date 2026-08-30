@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { main } from "../src/cli.mjs";
+import { parseSummaryBody } from "../src/summary.mjs";
 import { tmpBundle, tmpGitRepo, tmpDir } from "./helpers.mjs";
 process.env.MEMORY_SYNC_INLINE = "1";
 async function run(args, { stdin = "" } = {}) {
@@ -142,4 +143,22 @@ test("doctor exit code with a temp HOME", async () => {
     assert.ok(msgs.includes("no git remote; memory stays on this machine (memory init --remote URL)"));
     assert.ok(msgs.includes("check clean"));
   } finally { process.env.HOME = prevHome; }
+});
+test("fold skips under threshold, finalize folds, recall-observation resolves the source entry", async () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const fx = path.join(import.meta.dirname, "fixtures", "transcripts", "pi.jsonl");
+  const observer = `sh -c 'grep -q "You distill" - && echo "Keep pnpm <- $(cat "$MEMORY_PROMPT_FILE" | grep -o "\\[[a-f0-9]\\{12\\}\\]" | head -1 | tr -d "[]")" || echo "[high] User requires pnpm, never npm | a1b2c3d4"'`;
+  const base = ["--dir", b.root, "--cwd", repo, "--actor", "pi/kimi-k3"];
+  let r = await run([...base, "fold", "--session", "pi:session/01a0457b", "--transcript", fx, "--format", "pi", "--summarize-cmd", observer]);
+  assert.equal(r.code, 0); assert.equal(r.json.status, "skipped");
+  r = await run([...base, "fold", "--session", "pi:session/01a0457b", "--transcript", fx, "--format", "pi", "--summarize-cmd", observer, "--finalize"]);
+  assert.equal(r.code, 0); assert.equal(r.json.status, "folded");
+  const dir = b.dir("github.com/a/b");
+  const [{ concept }] = b.listConcepts(dir).filter((e) => e.concept.type === "Session Summary");
+  const body = parseSummaryBody(concept.body);
+  const id = body.observations[0].id;
+  r = await run([...base, "recall-observation", id]);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.id, id);
+  assert.ok(r.json.entries.some((e) => e.id === "a1b2c3d4" && e.text === "use pnpm here, never npm"));
 });

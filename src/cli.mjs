@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { MemoryError, exitCode } from "./errors.mjs";
@@ -14,8 +15,16 @@ import { renderContext } from "./context.mjs";
 import { recall } from "./recall.mjs";
 import { check } from "./check.mjs";
 import { doctor } from "./doctor.mjs";
+import { fold, runFoldJob } from "./fold.mjs";
+import { detectFormat, readEntries } from "./transcript.mjs";
+import { parseSummaryBody } from "./summary.mjs";
 
 const GLOBAL = { dir: { type: "string" }, cwd: { type: "string" }, actor: { type: "string" }, md: { type: "boolean" }, root: { type: "boolean" }, "stdin-text": { type: "string" } };
+const FOLD_OPTIONS = {
+  session: { type: "string" }, transcript: { type: "string" }, format: { type: "string" }, finalize: { type: "boolean" },
+  "summarize-cmd": { type: "string" },
+  observeAfterTokens: { type: "string" }, reflectAfterTokens: { type: "string" }, observationsMaxTokens: { type: "string" }, observationsTargetTokens: { type: "string" },
+};
 const COMMANDS = {
   init: { remote: { type: "string" } },
   "project-id": {},
@@ -25,6 +34,9 @@ const COMMANDS = {
   recall: { type: { type: "string" }, deprecated: { type: "boolean" } },
   index: {}, check: {}, sync: { pull: { type: "boolean" }, push: { type: "boolean" } }, doctor: {},
   _job: { index: { type: "string" }, commit: { type: "string" } },
+  fold: FOLD_OPTIONS, _fold: FOLD_OPTIONS,
+  summarize: { session: { type: "string" } },
+  "recall-observation": { session: { type: "string" } },
 };
 
 // argv carries global flags (with their values) ahead of the command word, e.g.
@@ -78,6 +90,13 @@ function targetDir(ctx, values) {
 }
 function requireBundle(bundle) { if (!bundle.exists()) throw new MemoryError("notfound", `no bundle at ${bundle.root}; run memory init`); }
 function need(values, key) { if (values[key] === undefined) throw new MemoryError("usage", `--${key} is required`); return values[key]; }
+function foldOpts(ctx, v) {
+  const settings = {};
+  for (const k of ["observeAfterTokens", "reflectAfterTokens", "observationsMaxTokens", "observationsTargetTokens"]) {
+    if (v[k] !== undefined) settings[k] = Number(v[k]);
+  }
+  return { session: need(v, "session"), actor: ctx.actor, transcript: need(v, "transcript"), cwd: ctx.cwd, format: v.format, finalize: !!v.finalize, summarizeCmd: v["summarize-cmd"], settings };
+}
 
 export function runJobInline(bundle, dirRel, message) {
   withLock(bundle.root, () => {
@@ -162,6 +181,38 @@ const HANDLERS = {
     try { runJobInline(ctx.bundle, v.index ?? "", v.commit ?? "memory: update"); }
     catch { /* detached job: always exits 0 */ }
     return undefined;
+  },
+  async fold(ctx, v) { requireBundle(ctx.bundle); return fold(ctx.bundle, foldOpts(ctx, v)); },
+  async _fold(ctx, v) { requireBundle(ctx.bundle); return runFoldJob(ctx.bundle, foldOpts(ctx, v)); },
+  async summarize(ctx, v) {
+    const dir = targetDir(ctx, v);
+    const session = need(v, "session");
+    const body = await ctx.readStdin();
+    const at = ctx.now();
+    const existing = ctx.bundle.listConcepts(dir).find((e) => e.concept.type === "Session Summary" && e.concept.sources.some((s) => s.resource === session));
+    const rel = existing?.rel ?? ctx.bundle.conceptRel(dir, "Session Summary", `${at.replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z")}-${ctx.actor.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`);
+    const concept = existing
+      ? revise(existing.concept, { body }, ctx.actor, at)
+      : createConcept({ type: "Session Summary", title: `${at.slice(0, 16).replace("T", " ")} ${ctx.actor}`, description: `Session ${session}`, actor: ctx.actor, at, sources: [{ resource: session }], body });
+    ctx.bundle.writeConcept(rel, concept);
+    afterConceptWrite(ctx, dir, { kind: existing ? "Update" : "Creation", concept, rel, at, message: `memory: summarize ${session}` });
+    return { rel, created: !existing };
+  },
+  async "recall-observation"(ctx, v, [id]) {
+    if (!id) throw new MemoryError("usage", "observation id required");
+    const dir = targetDir(ctx, v);
+    for (const { concept } of ctx.bundle.listConcepts(dir).filter((e) => e.concept.type === "Session Summary")) {
+      const body = parseSummaryBody(concept.body);
+      const obs = body.observations.find((o) => o.id === id);
+      const ref = body.reflections.find((r) => r.id === id);
+      if (!obs && !ref) continue;
+      const ids = obs ? [id] : ref.supports;
+      const entryIds = concept.sources.filter((s) => s.id && ids.includes(s.id)).flatMap((s) => s.resource.split(","));
+      const transcript = concept.sources.find((s) => s.title === "transcript")?.resource;
+      const entries = transcript && fs.existsSync(transcript) ? readEntries(transcript, detectFormat(transcript), entryIds) : [];
+      return { id, line: obs ?? ref, entries };
+    }
+    throw new MemoryError("notfound", `no observation or reflection ${id}`);
   },
 };
 async function transition(ctx, v, key, fn, kind) {
