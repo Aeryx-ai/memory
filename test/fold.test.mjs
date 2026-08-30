@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { fold, runFoldJob } from "../src/fold.mjs";
+import { fold, runFoldJob, capDelta } from "../src/fold.mjs";
 import { parseSummaryBody } from "../src/summary.mjs";
+import { doctor } from "../src/doctor.mjs";
 import { tmpBundle, tmpGitRepo, tmpDir } from "./helpers.mjs";
 process.env.MEMORY_SYNC_INLINE = "1";
 const fx = path.join(import.meta.dirname, "fixtures", "transcripts", "pi.jsonl");
@@ -134,19 +135,49 @@ test("finalize with no summarizer promotes an already-drafted summary to stable,
   const after = JSON.parse(fs.readFileSync(b.statePath("pi-session-promote.json"), "utf8"));
   assert.equal(after.transcriptBytes, before.transcriptBytes); // checkpoint untouched
 });
-test("a persistently failing summarizer gives up after three consecutive failures, advancing the checkpoint past the abandoned delta", () => {
+test("a persistently failing summarizer gives up after three consecutive failures, advancing the checkpoint past the abandoned delta; the give-up state survives a no-op fold and only clears once a fold actually runs the summarizer", () => {
   const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
-  const opts = { session: "pi:session/give-up", actor: "pi/kimi-k3", transcript: fx, cwd: repo, format: "pi", summarizeCmd: "false" };
+  const dir = tmpDir();
+  const transcript = path.join(dir, "give-up.jsonl");
+  fs.copyFileSync(fx, transcript);
+  const opts = { session: "pi:session/give-up", actor: "pi/kimi-k3", transcript, cwd: repo, format: "pi", summarizeCmd: "false" };
   let r;
   for (let i = 0; i < 3; i++) r = runFoldJob(b, opts);
   assert.match(r.error, /abandoned/);
-  const state = JSON.parse(fs.readFileSync(b.statePath("pi-session-give-up.json"), "utf8"));
-  assert.equal(state.failures, 0); // streak reset after giving up
+  const statePath = b.statePath("pi-session-give-up.json");
+  let state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(state.failures, 3); // kept, not reset, so doctor's fail threshold reflects real state
   assert.match(state.lastError.message, /abandoned/);
   assert.ok(state.transcriptBytes > 0); // checkpoint advanced past the abandoned delta
-  // the abandoned delta is not retried: a working summarizer now sees nothing new
+  assert.ok(doctor(b).findings.some((f) => f.level === "fail" && f.message.includes("pi:session/give-up")));
+
+  // the abandoned delta is not retried: a working summarizer now sees nothing new, and a
+  // no-op fold must not erase the give-up marker
   const after = runFoldJob(b, { ...opts, summarizeCmd: observer });
   assert.equal(after.observations, 0);
+  state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(state.failures, 3);
+  assert.match(state.lastError.message, /abandoned/);
+  assert.ok(doctor(b).findings.some((f) => f.level === "fail" && f.message.includes("pi:session/give-up")));
+
+  // new content arrives: this fold actually sends entries to the summarizer and succeeds,
+  // which is the only thing allowed to clear the give-up marker
+  const script = path.join(dir, "note.mjs");
+  fs.writeFileSync(script, [
+    "import fs from \"node:fs\";",
+    "const text = fs.readFileSync(process.env.MEMORY_PROMPT_FILE, \"utf8\");",
+    "if (text.includes(\"You distill\")) process.exit(0);",
+    "const ids = [...text.matchAll(/^--- (\\S+) /gm)].map((m) => m[1]);",
+    "process.stdout.write(`[high] noted | ${ids[ids.length - 1]}\\n`);",
+  ].join("\n"));
+  const note = `${process.execPath} ${script}`;
+  fs.appendFileSync(transcript, `${JSON.stringify({ type: "message", id: "d4e5f6a7", parentId: "c3d4e5f6", timestamp: "2026-08-27T23:09:10.000Z", message: { role: "user", content: [{ type: "text", text: "more context" }] } })}\n`);
+  const real = runFoldJob(b, { ...opts, summarizeCmd: note });
+  assert.equal(real.observations, 1);
+  state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(state.failures, 0);
+  assert.equal(state.lastError, undefined);
+  assert.ok(!doctor(b).findings.some((f) => f.level === "fail" && f.message.includes("pi:session/give-up")));
 });
 test("a summarizer that fails once then recovers does not abandon the delta, and success resets the failure streak", () => {
   const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
@@ -194,6 +225,16 @@ test("the observer's delta is capped to observerMaxTokens by dropping the oldest
   assert.equal(keptIds.length, keptCount);
   assert.ok(!keptIds.includes("e00")); // oldest dropped first
   assert.ok(keptIds.includes("e09")); // most recent kept
+});
+test("capDelta caps 5000 entries in one pass, keeping the newest contiguous suffix", () => {
+  const entries = [];
+  for (let i = 0; i < 5000; i++) entries.push({ id: `e${i}`, role: "user", at: "2026-08-27T23:09:00.000Z", text: "x".repeat(200) });
+  const start = performance.now();
+  const kept = capDelta(entries, 2000);
+  const elapsed = performance.now() - start;
+  assert.ok(elapsed < 500, `capDelta of 5000 entries took ${elapsed}ms, expected under 500ms`);
+  assert.ok(kept.length > 0 && kept.length < entries.length, `expected a partial cap, kept ${kept.length} of ${entries.length}`);
+  assert.deepEqual(kept, entries.slice(entries.length - kept.length)); // newest suffix, nothing reordered or dropped from the middle
 });
 test("pruning a reflection's covered observation still leaves its cited source resolvable (finding 3: sources must not strand a surviving reflection)", () => {
   const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");

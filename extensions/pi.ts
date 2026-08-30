@@ -7,20 +7,11 @@ import { recall } from "../src/recall.mjs";
 import { fold } from "../src/fold.mjs";
 import { projectIdFor } from "../src/project-id.mjs";
 import { spawnDetached } from "../src/git.mjs";
-import { readSettings, contextBlock, compactionFromSummary, summarizeCmd, snapshotIsStale } from "./pi-core.mjs";
+import { readSettings, contextBlock, compactionFromSummary, summarizeCmd, snapshotIsStale, foldSettings } from "./pi-core.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "memory.mjs");
-// fold's spawn argv turns every settings key into `--<key> <value>`; only these
-// four are fold options, so anything else in the merged settings (dir,
-// summaryModel) must never reach it.
-const FOLD_SETTING_KEYS = ["observeAfterTokens", "reflectAfterTokens", "observationsMaxTokens", "observationsTargetTokens"] as const;
-function foldSettings(settings: any): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const k of FOLD_SETTING_KEYS) if (settings[k] !== undefined) out[k] = settings[k];
-  return out;
-}
 
 export default function memory(pi: ExtensionAPI): void {
   if ((process.env.MEMORY ?? "on") === "off") return;

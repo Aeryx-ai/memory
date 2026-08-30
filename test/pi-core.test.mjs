@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { readSettings, contextBlock, compactionFromSummary, summarizeCmd, snapshotIsStale } from "../extensions/pi-core.mjs";
+import { readSettings, contextBlock, compactionFromSummary, summarizeCmd, snapshotIsStale, foldSettings } from "../extensions/pi-core.mjs";
 import { createConcept } from "../src/concept.mjs";
 import { projectIdFor } from "../src/project-id.mjs";
 import { tmpBundle, tmpDir } from "./helpers.mjs";
@@ -40,6 +40,9 @@ test("summarize command prefers the configured model, keeps providers available,
   assert.match(a, /--no-skills/);
   assert.doesNotMatch(a, /--no-extensions/);
   assert.match(summarizeCmd({}, { provider: "x", id: "y" }), /--model x\/y/);
+});
+test("foldSettings passes through only the numeric fold keys, derived from fold.mjs's DEFAULTS so the allowed list can't drift", () => {
+  assert.deepEqual(foldSettings({ dir: "x", summaryModel: "y", observerMaxTokens: 1000, observeAfterTokens: 5 }), { observerMaxTokens: 1000, observeAfterTokens: 5 });
 });
 test("snapshotIsStale compares local calendar dates, not a rolling window", () => {
   const beforeMidnight = new Date(2026, 7, 29, 23, 59); // Aug 29 2026 23:59 local

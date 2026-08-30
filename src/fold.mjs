@@ -14,6 +14,9 @@ import { findSecret } from "./secrets.mjs";
 import { slugify } from "./slug.mjs";
 
 export const DEFAULTS = { observeAfterTokens: 8000, reflectAfterTokens: 20000, observationsMaxTokens: 20000, observationsTargetTokens: 10000, observerMaxTokens: 60000 };
+// The pi extension derives its allowed --settings keys from this list, so a
+// new fold setting can't be silently dropped by a stale hardcoded list.
+export const FOLD_SETTING_KEYS = Object.keys(DEFAULTS);
 // Prompt-injection bounds (see the spec's Trust boundary paragraph): an
 // observation line is capped so one steered line can't smuggle an
 // unbounded amount of text into every later session's context, and a
@@ -105,10 +108,23 @@ const REF_OUT = /^(.+?)\s*<-\s*([a-f0-9]{12}(?:,[a-f0-9]{12})*)\s*$/;
 // Drop the oldest entries until the serialized delta fits observerMaxTokens,
 // so one long-idle session catching up in a single fold can't blow the
 // observer prompt up without bound. Keeps at least one entry.
-function capDelta(entries, maxTokens) {
-  let kept = entries;
-  while (kept.length > 1 && estimateTokens(serializeEntries(kept)) > maxTokens) kept = kept.slice(1);
-  return kept;
+// One pass: each entry's serialized byte length is computed once, then
+// entries are walked newest-to-oldest accumulating bytes, stopping (and
+// dropping everything older) the moment the running total would exceed
+// maxTokens. Re-serializing the whole remaining delta on every drop is O(n^2)
+// and unusable past a few thousand entries; this is O(n).
+export function capDelta(entries, maxTokens) {
+  const n = entries.length;
+  if (n === 0) return entries;
+  let bytes = Buffer.byteLength(serializeEntries([entries[n - 1]]));
+  let start = n - 1;
+  for (let i = n - 2; i >= 0; i--) {
+    const next = bytes + Buffer.byteLength(serializeEntries([entries[i]]));
+    if (Math.ceil(next / 4) > maxTokens) break;
+    bytes = next;
+    start = i;
+  }
+  return entries.slice(start);
 }
 function truncateObservation(content) {
   return content.length > OBSERVATION_MAX_CHARS ? `${content.slice(0, OBSERVATION_MAX_CHARS)}…` : content;
@@ -146,22 +162,26 @@ function promoteToStable(bundle, dir, state, rel, concept, actor, now, session) 
   bundle.writeConcept(rel, revised);
   appendLog(bundle, dir, { kind: "Update", concept: revised, rel, actor, at: now });
   afterWrite(bundle, { dirRel: dir.rel, message: `memory: fold ${session}` });
-  delete state.lastError;
-  saveState(bundle, state); // transcriptBytes/foldedAt untouched: the checkpoint does not advance
+  // No summarizer runs on this path, so a prior give-up marker (lastError,
+  // failures) is left as is: promoting a draft is not a successful fold of
+  // the abandoned delta, and transcriptBytes/foldedAt stay untouched too, so
+  // there's nothing new to persist here.
   return { observations: 0, reflected: false, dropped: 0 };
 }
 
 // A summarizer that keeps throwing must not let the delta grow forever: on
 // the first two consecutive failures just record why and leave the
 // checkpoint where it is (the same delta is retried next fold). On the
-// third, give up on this delta specifically: advance transcriptBytes past
-// it so it stops growing, note that it was abandoned, and reset the
-// counter. A successful observer call anywhere resets it back to 0.
+// third, give up on this delta specifically: advance transcriptBytes past it
+// so it stops growing, and note that it was abandoned. failures is left at
+// its count (not reset) so doctor's failures >= 3 check reflects real state
+// and a later no-op fold can't read as healthy; only a fold that actually
+// sends entries to the summarizer and succeeds clears it (see the bottom of
+// runFold).
 function giveUpOrRetry(bundle, state, rel, error, bytes, now) {
   state.failures = (state.failures ?? 0) + 1;
   if (state.failures >= GIVE_UP_AFTER_FAILURES) {
     state.lastError = { at: now, message: `${error.message} (delta abandoned after ${GIVE_UP_AFTER_FAILURES} consecutive summarizer failures)` };
-    state.failures = 0;
     Object.assign(state, { rel, transcriptBytes: bytes, foldedAt: now });
   } else {
     state.lastError = { at: now, message: error.message };
@@ -219,7 +239,6 @@ function runFold(bundle, opts) {
     } catch (e) {
       return giveUpOrRetry(bundle, state, rel, e, bytes, now);
     }
-    state.failures = 0; // a successful observer call clears any prior failure streak
     const byId = new Map(capped.map((e) => [e.id, e]));
     // At most MAX_OBSERVATIONS_PER_FOLD observations per fold, regardless of
     // how many lines the summarizer returns.
@@ -286,7 +305,12 @@ function runFold(bundle, opts) {
   bundle.writeConcept(rel, concept);
   appendLog(bundle, dir, { kind: "Update", concept, rel, actor, at: now });
   afterWrite(bundle, { dirRel: dir.rel, message: `memory: fold ${session}` });
-  delete state.lastError;
+  // Only a fold that actually sent entries to the summarizer and got this far
+  // (revise succeeded) counts as a real success: clear any give-up marker
+  // then. A zero-entries fold (nothing pending) must leave lastError/failures
+  // exactly as they were, or a dead summarizer's give-up state would get
+  // silently erased by the next fold that happens to find nothing new to do.
+  if (entries.length) { delete state.lastError; state.failures = 0; }
   Object.assign(state, { rel, transcriptBytes: bytes, foldedAt: now });
   saveState(bundle, state);
   return { observations: added.length, reflected, dropped: pruned.dropped.length };

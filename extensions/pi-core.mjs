@@ -3,10 +3,20 @@ import path from "node:path";
 import { renderContext } from "../src/context.mjs";
 import { parseSummaryBody, isSessionSummaryFor } from "../src/summary.mjs";
 import { projectIdFor } from "../src/project-id.mjs";
+import { FOLD_SETTING_KEYS } from "../src/fold.mjs";
 const NOTE = `Tools: memory_remember saves a durable concept (User, Feedback, Project, Reference); memory_recall searches; memory_deprecate retires one; memory_recall_observation expands a [id] line from a session summary.\n`;
 function readJson(p) { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return {}; } }
 export function readSettings(agentDir, cwd) {
   return { ...(readJson(path.join(agentDir, "settings.json")).memory ?? {}), ...(readJson(path.join(cwd, ".pi", "settings.json")).memory ?? {}) };
+}
+// fold's spawn argv turns every settings key into `--<key> <value>`; only
+// fold.mjs's DEFAULTS keys are fold options, so anything else in the merged
+// settings (dir, summaryModel) must never reach it. Derived from fold.mjs so
+// this list can't drift out of sync with what fold actually accepts.
+export function foldSettings(settings) {
+  const out = {};
+  for (const k of FOLD_SETTING_KEYS) if (settings[k] !== undefined) out[k] = settings[k];
+  return out;
 }
 export function contextBlock(bundle, cwd, session) {
   return renderContext(bundle, { projectId: projectIdFor(cwd), session, budget: 200000 }) + NOTE;
