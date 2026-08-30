@@ -84,12 +84,12 @@ pi reads a `"memory"` block from `~/.pi/agent/settings.json` (or `<cwd>/.pi/sett
 - `MEMORY_DIR`: bundle root, default `~/.agents/memory`.
 - `MEMORY=off`: disables the pi extension entirely and gates the Claude Code hooks off, so a nested `claude -p` summarizer call cannot recurse into its own hooks.
 - `MEMORY_FOLD=off`: disables background folding (pi and Claude) without disabling context injection or the memory tools.
-- `MEMORY_SUMMARIZE_CMD`: overrides the Claude plugin's summarizer command (default `claude -p --model claude-haiku-4-5-20251001`).
+- `MEMORY_SUMMARIZE_CMD`: overrides the Claude plugin's summarizer command (default `MEMORY=off claude -p --model claude-haiku-4-5-20251001 --output-format text`; `MEMORY=off` is there so the nested `claude -p` does not run these hooks itself).
 - `MEMORY_BIN`: overrides the `memory` binary the Claude plugin hooks call, for pointing tests or a local checkout at `node <repo>/bin/memory.mjs` instead of a global install.
 
 ## Speed
 
-No turn waits on memory. `context` reads two `index.md` files and a few summary files already on disk: no model, no database, no network, budget 20ms. `remember` writes one file and appends one log line, budget 30ms; index regeneration, git commit and push run in a detached background process the caller never waits for. Concept writes never lock; two writers to the same slug are last-writer-wins. A lost background job leaves a stale index or an uncommitted concept, never a corrupt file: `check` finds it, the next write or `memory index` repairs it. The only model calls happen in background folds of the running session summary, over a small transcript delta, on a cheap model, detached; nothing runs on a timer.
+No turn waits on memory. `context` reads two `index.md` files and a few summary files already on disk: no model, no database, no network, budget 20ms. `remember` writes one file and appends one log line, budget 30ms; index regeneration, `git commit` and `git push` run in a detached background process the caller never waits for. Concept writes never lock; two writers to the same slug are last-writer-wins. A lost background job leaves a stale index or an uncommitted concept, never a corrupt file: `check` finds it, the next write or `memory index` repairs it. The only model calls happen in background folds of the running session summary, over a small transcript delta, on a cheap model, detached; nothing runs on a timer.
 
 ## Layout
 
