@@ -44,3 +44,26 @@ test("duplicate source resources refused", () => {
 test("parse without type refused", () => {
   assert.throws(() => parseConcept("---\ntitle: x\n---\n"), (e) => e.code === "refused");
 });
+test("revise promotes draft to stable, refuses other status changes", () => {
+  const draft = createConcept({ ...base, status: "draft" });
+  const promoted = revise(draft, { status: "stable" }, "human:guy", at);
+  assert.equal(promoted.status, "stable");
+  assert.throws(() => revise(createConcept(base), { status: "draft" }, "human:guy", at), (e) => e.code === "refused");
+  const deprecated = deprecate(createConcept(base), "human:guy", at);
+  assert.throws(() => revise(deprecated, { status: "stable" }, "human:guy", at), (e) => e.code === "refused");
+});
+test("createConcept refuses starting deprecated", () => {
+  assert.throws(() => createConcept({ ...base, status: "deprecated" }), (e) => e.code === "refused");
+});
+test("parseConcept reads a deprecated document", () => {
+  const deprecated = deprecate(createConcept(base), "human:guy", at);
+  const parsed = parseConcept(renderConcept(deprecated));
+  assert.equal(parsed.status, "deprecated");
+});
+test("concepts are deeply frozen", () => {
+  const c = createConcept(base);
+  assert.throws(() => { c.generated.by = "someone-else"; }, TypeError);
+  assert.throws(() => { c.sources.push({ resource: "z" }); }, TypeError);
+  assert.equal(c.generated.by, "claude-code/claude-fable-5");
+  assert.equal(c.sources.length, 1);
+});

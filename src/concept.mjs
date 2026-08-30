@@ -19,6 +19,13 @@ function checkSources(sources) {
     seen.add(s.resource);
   }
 }
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const v of Object.values(value)) deepFreeze(v);
+  }
+  return value;
+}
 function finish(c) {
   if (!TYPES.includes(c.type)) throw new MemoryError("refused", `type ${JSON.stringify(c.type)} not in ${TYPES.join(", ")}`);
   if (!String(c.title ?? "").trim()) throw new MemoryError("refused", "title is empty");
@@ -28,9 +35,10 @@ function finish(c) {
   for (const v of c.verified) parseActor(v.by);
   checkSources(c.sources);
   checkText("title", c.title); checkText("description", c.description); checkText("body", c.body);
-  return Object.freeze(c);
+  return deepFreeze(c);
 }
 export function createConcept({ type, title, description = "", tags = [], status = "stable", actor, at = new Date().toISOString(), sources = [], body = "", verified = [], stale_after, extra = {} }) {
+  if (status !== "draft" && status !== "stable") throw new MemoryError("refused", `createConcept cannot start ${JSON.stringify(status)}; use draft or stable, then deprecate() afterward`);
   return finish({ type, title: String(title).trim(), description: String(description).trim(), tags: [...tags], status, generated: { by: actor, at }, verified: [...verified], sources: sources.map((s) => ({ ...s })), ...(stale_after ? { stale_after } : {}), body, extra: { ...extra } });
 }
 export function parseConcept(text) {
@@ -65,6 +73,10 @@ export function restore(c, actor, at) {
   if (c.status === "stable") throw new MemoryError("refused", `${c.title} is already stable`);
   return finish({ ...stamp(c, actor, at), status: "stable" });
 }
+// fields: { title?, description?, body?, tags?, sources?, status? }
+// status, when present, may only promote a draft (or a no-op on an already
+// stable concept) to "stable"; any other value is refused, as is promoting a
+// deprecated concept (use restore() instead).
 export function revise(c, fields, actor, at) {
   const next = { ...stamp(c, actor, at) };
   for (const k of ["title", "description", "body", "tags"]) if (fields[k] !== undefined) next[k] = fields[k];
@@ -72,6 +84,10 @@ export function revise(c, fields, actor, at) {
     const have = new Set(c.sources.map((s) => s.resource));
     next.sources = [...c.sources, ...fields.sources.filter((s) => !have.has(s.resource))];
   }
-  if (fields.status) next.status = fields.status;
+  if (fields.status !== undefined) {
+    if (fields.status !== "stable") throw new MemoryError("refused", `revise cannot set status to ${JSON.stringify(fields.status)}; use deprecate/restore, or promote a draft with status: "stable"`);
+    if (c.status !== "draft" && c.status !== "stable") throw new MemoryError("refused", `revise cannot promote ${c.status} to stable; restore it first`);
+    next.status = "stable";
+  }
   return finish(next);
 }
