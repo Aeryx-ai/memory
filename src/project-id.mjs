@@ -11,16 +11,43 @@ export function assertProjectId(id) {
 
 export function projectIdFromOrigin(url) {
   let u = url.trim();
-  const scp = /^([^@\s]+@)?([^:/\s]+):(?!\/\/)(.+)$/.exec(u);
-  let host, p;
-  if (scp) { host = scp[2]; p = scp[3]; }
-  else {
-    u = u.replace(/^[a-z+]+:\/\//i, "");
-    u = u.replace(/^[^@/]+@/, "");
-    const i = u.indexOf("/"); host = u.slice(0, i); p = u.slice(i + 1);
+
+  // Reject filesystem paths
+  if (u.startsWith("/") || u.startsWith(".") || u.startsWith("~") || /^[a-z]:/i.test(u)) {
+    throw new MemoryError("refused", `malformed project id origin ${JSON.stringify(u)}`);
   }
+
+  // Check if URL has a scheme
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(u);
+
+  let host, p;
+
+  if (hasScheme) {
+    // Strip scheme
+    u = u.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+    // Strip optional user[:pass]@
+    u = u.replace(/^[^@/]+@/, "");
+    // Split at first /
+    const i = u.indexOf("/");
+    host = u.slice(0, i);
+    p = u.slice(i + 1);
+  } else {
+    // Try SCP form only if no scheme
+    const scp = /^([^@\s]+@)?([^:/\s]+):(.+)$/.exec(u);
+    if (scp) {
+      host = scp[2];
+      p = scp[3];
+    } else {
+      // No scheme and not SCP form
+      throw new MemoryError("refused", `malformed project id origin ${JSON.stringify(url.trim())}`);
+    }
+  }
+
+  // Normalize host: lowercase and strip port
   host = host.toLowerCase().replace(/:\d+$/, "");
+  // Normalize path: strip trailing slashes and .git
   p = p.replace(/\/+$/, "").replace(/\.git$/, "");
+
   return assertProjectId(`${host}/${p}`);
 }
 
@@ -35,5 +62,11 @@ export function projectIdFor(cwd) {
   const top = git(cwd, ["rev-parse", "--show-toplevel"]);
   if (!top) return localProjectId(cwd);
   const origin = git(top, ["remote", "get-url", "origin"]);
-  return origin ? projectIdFromOrigin(origin) : localProjectId(top);
+  if (!origin) return localProjectId(top);
+  try {
+    return projectIdFromOrigin(origin);
+  } catch (e) {
+    if (e.code === "refused") return localProjectId(top);
+    throw e;
+  }
 }

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { projectIdFromOrigin, localProjectId, projectIdFor, assertProjectId } from "../src/project-id.mjs";
 import { tmpGitRepo, tmpDir } from "./helpers.mjs";
 
@@ -31,4 +32,22 @@ test("assertProjectId refuses traversal", () => {
     assert.throws(() => assertProjectId(bad), (e) => e.code === "refused");
   }
   assert.equal(assertProjectId("local/x"), "local/x");
+});
+
+test("scheme urls with ports normalize correctly", () => {
+  assert.equal(projectIdFromOrigin("ssh://git@github.com:2222/guygrigsby/x.git"), "github.com/guygrigsby/x");
+  assert.equal(projectIdFromOrigin("https://gitlab.example.com:8443/team/repo.git"), "gitlab.example.com/team/repo");
+});
+
+test("local filesystem path origins fall back to local id", () => {
+  const bareOrigin = tmpDir();
+  execFileSync("git", ["init", "-q", "--bare"], { cwd: bareOrigin });
+  const repo = tmpGitRepo(bareOrigin);
+  assert.equal(projectIdFor(repo), `local/${path.basename(repo)}`);
+});
+
+test("projectIdFromOrigin rejects filesystem paths", () => {
+  for (const bad of ["/Users/guy/repos/upstream.git", "./relative/path", "~/home/path"]) {
+    assert.throws(() => projectIdFromOrigin(bad), (e) => e.code === "refused");
+  }
 });
