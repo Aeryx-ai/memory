@@ -38,8 +38,12 @@ test("transitions", () => {
   assert.equal(r.body, "New.\n"); assert.equal(r.generated.by, "pi/kimi-k3");
   assert.deepEqual(r.sources.map((s) => s.resource), ["claude-code:session/abc", "pi:session/xyz"]);
 });
-test("duplicate source resources refused", () => {
-  assert.throws(() => createConcept({ ...base, sources: [{ resource: "a" }, { resource: "a" }] }), (e) => e.code === "refused");
+test("duplicate source refused only when resource and id both match", () => {
+  assert.throws(() => createConcept({ ...base, sources: [{ resource: "a", id: "x" }, { resource: "a", id: "x" }] }), (e) => e.code === "refused");
+});
+test("same resource with different ids is accepted (many observations can cite one entry)", () => {
+  const c = createConcept({ ...base, sources: [{ resource: "a", id: "x" }, { resource: "a", id: "y" }] });
+  assert.deepEqual(c.sources.map((s) => s.id), ["x", "y"]);
 });
 test("parse without type refused", () => {
   assert.throws(() => parseConcept("---\ntitle: x\n---\n"), (e) => e.code === "refused");

@@ -9,8 +9,8 @@ export function git(root, args, { allowFail = false, timeoutMs } = {}) {
   try { return execFileSync("git", args, opts).trim(); }
   catch (e) { if (allowFail) return null; throw new MemoryError("sync", `git ${args.join(" ")}: ${e.stderr?.toString().trim() || e.message}`); }
 }
-export function withLock(root, fn) {
-  const lock = path.join(root, ".locks", "git");
+export function withLock(root, fn, { name = "git" } = {}) {
+  const lock = path.join(root, ".locks", name);
   fs.mkdirSync(path.dirname(lock), { recursive: true });
   try { fs.mkdirSync(lock); }
   catch {

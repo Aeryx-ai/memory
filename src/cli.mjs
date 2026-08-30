@@ -15,7 +15,7 @@ import { renderContext } from "./context.mjs";
 import { recall } from "./recall.mjs";
 import { check } from "./check.mjs";
 import { doctor } from "./doctor.mjs";
-import { fold, runFoldJob } from "./fold.mjs";
+import { fold, runFoldJob, markFoldError, utcMinute, sessionSummaryRel } from "./fold.mjs";
 import { detectFormat, readEntries } from "./transcript.mjs";
 import { parseSummaryBody } from "./summary.mjs";
 
@@ -90,6 +90,14 @@ function targetDir(ctx, values) {
 }
 function requireBundle(bundle) { if (!bundle.exists()) throw new MemoryError("notfound", `no bundle at ${bundle.root}; run memory init`); }
 function need(values, key) { if (values[key] === undefined) throw new MemoryError("usage", `--${key} is required`); return values[key]; }
+// recall-observation only ever reads back a transcript path this machine itself
+// recorded in a concept's sources[]; refuse anything outside the user's home
+// rather than following an arbitrary filesystem path.
+function underHome(p) {
+  const home = os.homedir();
+  const resolved = path.resolve(p);
+  return resolved === home || resolved.startsWith(home + path.sep);
+}
 function foldOpts(ctx, v) {
   const settings = {};
   for (const k of ["observeAfterTokens", "reflectAfterTokens", "observationsMaxTokens", "observationsTargetTokens"]) {
@@ -183,17 +191,28 @@ const HANDLERS = {
     return undefined;
   },
   async fold(ctx, v) { requireBundle(ctx.bundle); return fold(ctx.bundle, foldOpts(ctx, v)); },
-  async _fold(ctx, v) { requireBundle(ctx.bundle); return runFoldJob(ctx.bundle, foldOpts(ctx, v)); },
+  async _fold(ctx, v) {
+    try { requireBundle(ctx.bundle); return runFoldJob(ctx.bundle, foldOpts(ctx, v)); }
+    catch (e) {
+      // Detached job: never throw. Best-effort record the failure against the
+      // session's checkpoint so it's visible on the next fold or to doctor.
+      if (v.session) { try { markFoldError(ctx.bundle, v.session, e.message); } catch { /* nothing more we can do */ } }
+      return undefined;
+    }
+  },
   async summarize(ctx, v) {
     const dir = targetDir(ctx, v);
     const session = need(v, "session");
     const body = await ctx.readStdin();
     const at = ctx.now();
     const existing = ctx.bundle.listConcepts(dir).find((e) => e.concept.type === "Session Summary" && e.concept.sources.some((s) => s.resource === session));
-    const rel = existing?.rel ?? ctx.bundle.conceptRel(dir, "Session Summary", `${at.replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z")}-${ctx.actor.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`);
+    if (existing && parseSummaryBody(existing.concept.body).observations.length) {
+      throw new MemoryError("refused", `session ${session} already has folded observations at ${existing.rel}; summarize would overwrite them`);
+    }
+    const rel = existing?.rel ?? sessionSummaryRel(ctx.bundle, dir, at, ctx.actor);
     const concept = existing
       ? revise(existing.concept, { body }, ctx.actor, at)
-      : createConcept({ type: "Session Summary", title: `${at.slice(0, 16).replace("T", " ")} ${ctx.actor}`, description: `Session ${session}`, actor: ctx.actor, at, sources: [{ resource: session }], body });
+      : createConcept({ type: "Session Summary", title: `${utcMinute(at)} ${ctx.actor}`, description: `Session ${session}`, actor: ctx.actor, at, sources: [{ resource: session }], body });
     ctx.bundle.writeConcept(rel, concept);
     afterConceptWrite(ctx, dir, { kind: existing ? "Update" : "Creation", concept, rel, at, message: `memory: summarize ${session}` });
     return { rel, created: !existing };
@@ -209,7 +228,7 @@ const HANDLERS = {
       const ids = obs ? [id] : ref.supports;
       const entryIds = concept.sources.filter((s) => s.id && ids.includes(s.id)).flatMap((s) => s.resource.split(","));
       const transcript = concept.sources.find((s) => s.title === "transcript")?.resource;
-      const entries = transcript && fs.existsSync(transcript) ? readEntries(transcript, detectFormat(transcript), entryIds) : [];
+      const entries = transcript && underHome(transcript) && fs.existsSync(transcript) ? readEntries(transcript, detectFormat(transcript), entryIds) : [];
       return { id, line: obs ?? ref, entries };
     }
     throw new MemoryError("notfound", `no observation or reflection ${id}`);

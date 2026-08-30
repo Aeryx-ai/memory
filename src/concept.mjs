@@ -11,12 +11,18 @@ function checkText(field, text) {
   const hit = findSecret(String(text ?? ""));
   if (hit) throw new MemoryError("refused", `secret (${hit.name}) in ${field}; nothing written`);
 }
+// Two sources collide only when both resource and id match: many observations
+// (each its own id) can legitimately cite the same transcript entry id as their
+// resource. JSON-encode the pair rather than joining with a separator, since a
+// resource (a path, a free-form id list) could itself contain any character.
+const sourceKey = (s) => JSON.stringify([s.resource, s.id ?? null]);
 function checkSources(sources) {
   const seen = new Set();
   for (const s of sources) {
     if (!s || typeof s.resource !== "string" || !s.resource) throw new MemoryError("refused", "source needs a resource");
-    if (seen.has(s.resource)) throw new MemoryError("refused", `duplicate source ${s.resource}`);
-    seen.add(s.resource);
+    const key = sourceKey(s);
+    if (seen.has(key)) throw new MemoryError("refused", `duplicate source ${s.resource}${s.id ? ` (${s.id})` : ""}`);
+    seen.add(key);
   }
 }
 function deepFreeze(value) {
@@ -81,8 +87,8 @@ export function revise(c, fields, actor, at) {
   const next = { ...stamp(c, actor, at) };
   for (const k of ["title", "description", "body", "tags"]) if (fields[k] !== undefined) next[k] = fields[k];
   if (fields.sources) {
-    const have = new Set(c.sources.map((s) => s.resource));
-    next.sources = [...c.sources, ...fields.sources.filter((s) => !have.has(s.resource))];
+    const have = new Set(c.sources.map(sourceKey));
+    next.sources = [...c.sources, ...fields.sources.filter((s) => !have.has(sourceKey(s)))];
   }
   if (fields.status !== undefined) {
     if (fields.status !== "stable") throw new MemoryError("refused", `revise cannot set status to ${JSON.stringify(fields.status)}; use deprecate/restore, or promote a draft with status: "stable"`);

@@ -162,3 +162,25 @@ test("fold skips under threshold, finalize folds, recall-observation resolves th
   assert.equal(r.json.id, id);
   assert.ok(r.json.entries.some((e) => e.id === "a1b2c3d4" && e.text === "use pnpm here, never npm"));
 });
+test("_fold never throws when the summarizer command fails; records lastError against the checkpoint", async () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const fx = path.join(import.meta.dirname, "fixtures", "transcripts", "pi.jsonl");
+  const base = ["--dir", b.root, "--cwd", repo, "--actor", "pi/kimi-k3"];
+  const r = await run([...base, "_fold", "--session", "pi:session/broken", "--transcript", fx, "--format", "pi", "--summarize-cmd", "false"]);
+  assert.equal(r.code, 0);
+  const dir = b.dir("github.com/a/b");
+  const summaries = b.listConcepts(dir).filter((e) => e.concept.type === "Session Summary");
+  assert.equal(summaries.length, 1); // the draft was created and persisted, not orphaned
+  const state = JSON.parse(fs.readFileSync(b.statePath("pi-session-broken.json"), "utf8"));
+  assert.equal(state.rel, summaries[0].rel);
+  assert.ok(state.lastError && /Command failed/.test(state.lastError.message));
+});
+test("summarize refuses to overwrite a session summary that already has folded observations", async () => {
+  const b = tmpBundle(); const repo = tmpGitRepo("git@github.com:a/b.git");
+  const fx = path.join(import.meta.dirname, "fixtures", "transcripts", "pi.jsonl");
+  const observer = `sh -c 'echo "[high] User requires pnpm, never npm | a1b2c3d4"'`;
+  const base = ["--dir", b.root, "--cwd", repo, "--actor", "pi/kimi-k3"];
+  await run([...base, "fold", "--session", "pi:session/sum", "--transcript", fx, "--format", "pi", "--summarize-cmd", observer, "--finalize"]);
+  const r = await run([...base, "summarize", "--session", "pi:session/sum"], { stdin: "Replacement body.\n" });
+  assert.equal(r.code, 3);
+});
