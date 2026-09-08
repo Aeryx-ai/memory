@@ -2,6 +2,7 @@ package memory
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -94,8 +95,8 @@ func TestRememberCreatesThenRevises(t *testing.T) {
 	if _, err := Remember(b, root, "human:guy", at, RememberInput{Type: "Rumor", Title: "P"}); CodeOf(err) != CodeRefused {
 		t.Errorf("unknown type: %v", err)
 	}
-	if _, err := Remember(b, root, "human:guy", at, RememberInput{Title: "P"}); CodeOf(err) != CodeUsage {
-		t.Errorf("missing type is usage: %v", err)
+	if _, err := Remember(b, root, "human:guy", at, RememberInput{Title: "P"}); CodeOf(err) != CodeRefused {
+		t.Errorf("empty type fails the vocabulary check, not usage: %v", err)
 	}
 	dep, err := DeprecateKey(b, root, "human:guy", at, "author-name")
 	if err != nil || dep.Status != "deprecated" || dep.Job.Message != "memory: deprecation Author name" {
@@ -158,5 +159,48 @@ func TestCheckFindsProblems(t *testing.T) {
 	}
 	if r.OK || len(seen) != 5 {
 		t.Errorf("problems %+v, matched %v", r.Problems, seen)
+	}
+}
+
+// TestZeroTimeIsRefused checks every entry point that stamps a concept,
+// log line or fold checkpoint against a caller-supplied now: nothing calls
+// time.Now() outside the git lock and temp file names, so a zero time.Time
+// is always a bug at the call site and must be refused with usage, not
+// stamped as year 1.
+func TestZeroTimeIsRefused(t *testing.T) {
+	var zero time.Time
+	if _, err := Create(CreateInput{Type: "User", Title: "x", Actor: "human:guy", At: zero}); CodeOf(err) != CodeUsage {
+		t.Errorf("Create: %v", err)
+	}
+	b := initBundle(t)
+	root, _ := b.Dir("")
+	if _, err := Remember(b, root, "human:guy", zero, RememberInput{Type: "User", Title: "x"}); CodeOf(err) != CodeUsage {
+		t.Errorf("Remember: %v", err)
+	}
+	if _, err := DeprecateKey(b, root, "human:guy", zero, "x"); CodeOf(err) != CodeUsage {
+		t.Errorf("DeprecateKey: %v", err)
+	}
+	if _, err := RestoreKey(b, root, "human:guy", zero, "x"); CodeOf(err) != CodeUsage {
+		t.Errorf("RestoreKey: %v", err)
+	}
+	if _, err := Summarize(b, root, "human:guy", zero, "s", "body"); CodeOf(err) != CodeUsage {
+		t.Errorf("Summarize: %v", err)
+	}
+	c, err := Create(CreateInput{Type: "User", Title: "x", Actor: "human:guy", At: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.AppendLog(root, LogCreation, c, "user/x.md", "human:guy", zero); CodeOf(err) != CodeUsage {
+		t.Errorf("AppendLog: %v", err)
+	}
+	fresh := New(filepath.Join(t.TempDir(), "memory"))
+	if err := fresh.Init("", zero); CodeOf(err) != CodeUsage {
+		t.Errorf("Init: %v", err)
+	}
+	if _, _, err := FoldDue(b, FoldOptions{Session: "s", Transcript: "/nope", Now: zero}); CodeOf(err) != CodeUsage {
+		t.Errorf("FoldDue: %v", err)
+	}
+	if _, err := RunFoldJob(b, FoldOptions{Session: "s", Transcript: "/nope", Now: zero}); CodeOf(err) != CodeUsage {
+		t.Errorf("RunFoldJob: %v", err)
 	}
 }

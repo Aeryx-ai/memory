@@ -29,6 +29,9 @@ type logBlock struct {
 // AppendLog is appendLog(): the line lands under today's "## date" heading,
 // which is created in date-descending position when absent.
 func (b *Bundle) AppendLog(dir Dir, kind LogKind, c *Concept, rel, actor string, at time.Time) error {
+	if err := requireAt(at); err != nil {
+		return err
+	}
 	logRel := joinRel(dir.Rel, "log.md")
 	day := js.ISO(at)[:10]
 	line := "* **" + string(kind) + "**: [" + c.Title + "](" + relTo(dir.Rel, rel) + ") by " + actor
@@ -46,14 +49,14 @@ func (b *Bundle) AppendLog(dir Dir, kind LogKind, c *Concept, rel, actor string,
 		}
 	}
 	if !placed {
-		at := len(blocks)
+		pos := len(blocks)
 		for i, blk := range blocks {
 			if blk.date < day {
-				at = i
+				pos = i
 				break
 			}
 		}
-		blocks = append(blocks[:at], append([]logBlock{{date: day, lines: []string{line}}}, blocks[at:]...)...)
+		blocks = append(blocks[:pos], append([]logBlock{{date: day, lines: []string{line}}}, blocks[pos:]...)...)
 	}
 	return b.WriteAtomic(logRel, renderLog(blocks))
 }

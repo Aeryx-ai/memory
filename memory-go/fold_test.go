@@ -85,8 +85,6 @@ func TestFoldStateAndGiveUp(t *testing.T) {
 	if st, err := RunFoldJob(b, fin); err != nil || st.Reason != "" {
 		t.Fatalf("finalize without summarizer promotes: %+v %v", st, err)
 	}
-	c, _ := b.ReadConcept(state["rel"].(string))
-	_ = c
 	d, _ := b.Dir("github.com/a/b")
 	entries, _ := b.ListConcepts(d)
 	for _, e := range entries {
@@ -117,5 +115,44 @@ func TestExecSummarizer(t *testing.T) {
 	}
 	if _, err := ExecSummarizer("sh -c 'exit 7'").Summarize("x"); err == nil {
 		t.Error("non-zero exit is an error")
+	}
+}
+
+// TestFoldJobRunErrorSurfacesInStatus proves Job.Run's error is no longer
+// silently discarded on the promote-to-stable path (fold's finalize with no
+// summarizer, and the same treatment at the end of a full fold): a bundle
+// with no git repository, so Job.Run's commit step fails, still counts the
+// fold as done but reports the failure in FoldStatus.Error.
+func TestFoldJobRunErrorSurfacesInStatus(t *testing.T) {
+	b := New(filepath.Join(t.TempDir(), "memory")) // no Init: no .git, so Job.Run's commit fails
+	dir, _ := b.Dir("github.com/a/b")
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	c, err := Create(CreateInput{Type: "Session Summary", Title: "x", Actor: "pi/k", At: at, Sources: []Source{{Resource: "pi:session/x"}}, Body: RenderSummaryBody(SummaryBody{})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel := b.ConceptRel(dir, "Session Summary", "x-summary")
+	if err := b.WriteConcept(rel, c); err != nil {
+		t.Fatal(err)
+	}
+	fin := FoldOptions{Session: "pi:session/x", Actor: "pi/k", ProjectID: "github.com/a/b", Finalize: true, Now: at.Add(time.Hour)}
+	st, err := RunFoldJob(b, fin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Status != "folded" || !strings.Contains(st.Error, "write completion:") {
+		t.Errorf("fold status = %+v, want folded with a write completion error", st)
+	}
+}
+
+// TestExecSummarizerCapsOutput proves the cap is enforced while the child is
+// still writing (a limitedWriter failing mid-copy), not by buffering the
+// whole 20MB and checking afterward: a child that would never stop on its
+// own (yes) still returns promptly because Write starts failing once the
+// buffer would cross 16MB.
+func TestExecSummarizerCapsOutput(t *testing.T) {
+	_, err := ExecSummarizer(`sh -c 'yes | head -c 20000000'`).Summarize("x")
+	if err == nil || err.Error() != "summarizer: output over 16MB" {
+		t.Errorf("got %v, want %q", err, "summarizer: output over 16MB")
 	}
 }

@@ -24,21 +24,17 @@ type WriteResult struct {
 	Job     Job
 }
 
-func need(name, v string) error {
-	if v == "" {
-		return Errorf(CodeUsage, "--%s is required", name)
-	}
-	return nil
-}
-
 // Remember is the CLI's remember: create the concept at the slug of its
 // title, or revise the one already there. The returned Job regenerates the
 // index and commits; the caller runs it, usually off the hot path.
+//
+// Node's need() only refuses an undefined flag; an explicitly empty --type,
+// --title or --session flows through to the checks that already refuse it
+// downstream (the type vocabulary check, slugify's empty-slug refusal,
+// createConcept's "source needs a resource"), so Go asks nothing extra of
+// Type, Title or Session here.
 func Remember(b *Bundle, dir Dir, actor string, at time.Time, in RememberInput) (WriteResult, error) {
-	if err := need("type", in.Type); err != nil {
-		return WriteResult{}, err
-	}
-	if err := need("title", in.Title); err != nil {
+	if err := requireAt(at); err != nil {
 		return WriteResult{}, err
 	}
 	if !IsType(in.Type) {
@@ -101,6 +97,9 @@ func writeAndLog(b *Bundle, dir Dir, kind LogKind, rel string, c *Concept, actor
 }
 
 func transition(b *Bundle, dir Dir, actor string, at time.Time, key string, fn func(*Concept, string, time.Time) (*Concept, error), kind LogKind) (WriteResult, error) {
+	if err := requireAt(at); err != nil {
+		return WriteResult{}, err
+	}
 	if key == "" {
 		return WriteResult{}, Errorf(CodeUsage, "concept key required")
 	}
@@ -159,7 +158,7 @@ func SessionSummaryRel(b *Bundle, dir Dir, at time.Time, actor string) (string, 
 // Summarize writes body verbatim as the session's Session Summary, revising
 // an existing one unless it already holds folded observations.
 func Summarize(b *Bundle, dir Dir, actor string, at time.Time, session, body string) (WriteResult, error) {
-	if err := need("session", session); err != nil {
+	if err := requireAt(at); err != nil {
 		return WriteResult{}, err
 	}
 	entries, err := b.ListConcepts(dir)

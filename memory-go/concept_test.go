@@ -130,7 +130,7 @@ func TestTransitions(t *testing.T) {
 }
 
 func TestParsePreservesExtraAndNormalizes(t *testing.T) {
-	text := "---\ntype: Feedback\ntitle: x\nstatus: stable\ngenerated:\n  by: human:guy\n  at: 2026-01-01T00:00:00Z\nverified:\n  by: pi/k\n  at: 2026-01-02T00:00:00Z\nsources:\n  - resource: r\n    note: kept\ncustom: 1\n---\nb\n"
+	text := "---\ntype: Feedback\ntitle: x\nstatus: stable\ngenerated:\n  by: human:guy\n  at: 2026-01-01T00:00:00Z\n  note: kept\nverified:\n  by: pi/k\n  at: 2026-01-02T00:00:00Z\nsources:\n  - resource: r\n    note: kept\ncustom: 1\n---\nb\n"
 	c, err := ParseConcept(text)
 	if err != nil {
 		t.Fatal(err)
@@ -143,6 +143,12 @@ func TestParsePreservesExtraAndNormalizes(t *testing.T) {
 	}
 	if v, _ := c.Sources[0].Extra.Get("note"); v != "kept" {
 		t.Errorf("source extra: %#v", c.Sources[0])
+	}
+	if c.Generated.Extra == nil {
+		t.Fatal("generated extra not set")
+	}
+	if v, _ := c.Generated.Extra.Get("note"); v != "kept" {
+		t.Errorf("generated extra: %#v", c.Generated.Extra)
 	}
 	want := strings.Replace(text, "verified:\n  by: pi/k\n  at: 2026-01-02T00:00:00Z\n", "verified:\n  - by: pi/k\n    at: 2026-01-02T00:00:00Z\n", 1)
 	if got := RenderConcept(c); got != want {

@@ -1,9 +1,6 @@
 package memory
 
-import (
-	"encoding/json"
-	"regexp"
-)
+import "regexp"
 
 var (
 	actorAgent   = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._:-]+$`)
@@ -26,6 +23,5 @@ func ParseActor(s string) (Actor, error) {
 	case actorAgent.MatchString(s):
 		return Actor{s, "agent"}, nil
 	}
-	q, _ := json.Marshal(s)
-	return Actor{}, Errorf(CodeRefused, "malformed actor %s: use <producer>/<version>, human:<id> or process:<id>", q)
+	return Actor{}, Errorf(CodeRefused, "malformed actor %s: use <producer>/<version>, human:<id> or process:<id>", quoteJSON(s))
 }

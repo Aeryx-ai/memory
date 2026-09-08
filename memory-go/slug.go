@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"encoding/json"
 	"regexp"
 	"strings"
 
@@ -31,8 +30,7 @@ func Slugify(title string) (string, error) {
 	}
 	s = strings.TrimRight(s, "-")
 	if s == "" {
-		q, _ := json.Marshal(title)
-		return "", Errorf(CodeRefused, "title %s yields an empty slug", q)
+		return "", Errorf(CodeRefused, "title %s yields an empty slug", quoteJSON(title))
 	}
 	return s, nil
 }

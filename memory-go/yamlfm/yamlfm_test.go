@@ -86,7 +86,15 @@ func TestParseRoundTrip(t *testing.T) {
 				t.Errorf("body = %q, want %q", body, c.Parsed.Body)
 			}
 			if again := RenderDocument(data, body); again != string(text) {
-				t.Logf("second render differs from file for %s (Node's parse loses a byte the renderer cannot restore)", c.Name)
+				// "multiline" is the one case where Node's own parse loses a
+				// byte the renderer cannot restore (see the case comment in
+				// yaml-cases.json), so a second render legitimately differs
+				// from the file there; every other case must round trip.
+				if c.Name == "multiline" {
+					t.Logf("second render differs from file for %s (Node's parse loses a byte the renderer cannot restore)", c.Name)
+				} else {
+					t.Errorf("second render differs from file for %s\n--- again ---\n%s\n--- file ---\n%s", c.Name, again, text)
+				}
 			}
 		})
 	}
@@ -131,5 +139,18 @@ func TestParseCoreSchemaFromHandEdits(t *testing.T) {
 		if got, _ := data.Get(k); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s = %#v, want %#v", k, got, want)
 		}
+	}
+}
+
+// TestParseRefusesDuplicateKey matches yaml@2.9.0's uniqueKeys: true default,
+// which throws DUPLICATE_KEY rather than letting the second occurrence
+// silently overwrite the first.
+func TestParseRefusesDuplicateKey(t *testing.T) {
+	_, _, err := ParseDocument("---\ntitle: a\ntitle: b\n---\nbody\n")
+	if err == nil {
+		t.Fatal("want error on duplicate key")
+	}
+	if !strings.Contains(err.Error(), "title") {
+		t.Errorf("error should name the key: %v", err)
 	}
 }

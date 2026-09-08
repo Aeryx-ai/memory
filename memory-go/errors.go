@@ -3,6 +3,7 @@ package memory
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 type Code string
@@ -45,4 +46,22 @@ func CodeOf(err error) Code {
 		return e.Code
 	}
 	return ""
+}
+
+// requireAt refuses a zero time.Time: every stamping function takes now from
+// its caller (nothing calls time.Now() outside the lock and temp names), so a
+// zero value is always a bug at the call site, never a legitimate timestamp.
+func requireAt(at time.Time) error {
+	if at.IsZero() {
+		return Errorf(CodeUsage, "at is required")
+	}
+	return nil
+}
+
+// requireNow is requireAt's message for FoldOptions.Now.
+func requireNow(now time.Time) error {
+	if now.IsZero() {
+		return Errorf(CodeUsage, "Now is required")
+	}
+	return nil
 }

@@ -52,6 +52,8 @@ type op struct {
 	Out          string         `json:"out"`
 	Expect       int            `json:"expect"`
 	ExpectStatus string         `json:"expectStatus"`
+	Verified     []Stamp        `json:"verified"`
+	StaleAfter   string         `json:"stale_after"`
 }
 
 type opResult struct {
@@ -245,7 +247,7 @@ func (r *replay) run() int {
 		if r.stop[o.Cmd] {
 			return i
 		}
-		code, stdout := r.exec(o)
+		code, stdout := r.exec(i, o)
 		want := r.results[i]
 		if code != want.Code {
 			r.t.Fatalf("op %d %s: exit %d, want %d (%s)", i, o.Cmd, code, want.Code, stdout)
@@ -269,7 +271,7 @@ func codeOf(err error) int {
 	return 1
 }
 
-func (r *replay) exec(o op) (int, string) {
+func (r *replay) exec(i int, o op) (int, string) {
 	at := r.at(o)
 	switch o.Cmd {
 	case "init":
@@ -326,8 +328,41 @@ func (r *replay) exec(o op) (int, string) {
 			return 4, jsonLine(res)
 		}
 		return 0, jsonLine(res)
+	case "concept":
+		var description string
+		if o.Description != nil {
+			description = *o.Description
+		}
+		var body string
+		if o.Body != nil {
+			body = *o.Body
+		}
+		var staleAfter any
+		if o.StaleAfter != "" {
+			staleAfter = o.StaleAfter
+		}
+		c, err := Create(CreateInput{Type: o.Type, Title: o.Title, Description: description, Actor: o.Actor, At: at, Verified: o.Verified, StaleAfter: staleAfter, Body: body})
+		if err != nil {
+			return codeOf(err), ""
+		}
+		dir := r.dir(o)
+		slug, err := Slugify(o.Title)
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		rel := r.b.ConceptRel(dir, o.Type, slug)
+		if err := r.b.WriteConcept(rel, c); err != nil {
+			r.t.Fatal(err)
+		}
+		if err := r.b.AppendLog(dir, LogCreation, c, rel, o.Actor, at); err != nil {
+			r.t.Fatal(err)
+		}
+		if _, err := (Job{DirRel: dir.Rel, Message: "memory: concept " + o.Title}).Run(r.b); err != nil {
+			r.t.Fatal(err)
+		}
+		return 0, jsonLine(map[string]any{"rel": rel})
 	}
-	return r.execLater(o)
+	return r.execLater(i, o)
 }
 
 // jsonLine is JSON.stringify(v) + "\n" for the small result objects the CLI
@@ -447,7 +482,7 @@ func TestGoldenReplayWrites(t *testing.T) {
 	})
 }
 
-func (r *replay) execLater(o op) (int, string) {
+func (r *replay) execLater(i int, o op) (int, string) {
 	switch o.Cmd {
 	case "fold":
 		fo := FoldOptions{Session: o.Session, Actor: o.Actor, Transcript: filepath.Join(r.base, "transcripts", o.Transcript), Format: o.Format, ProjectID: o.Project, Finalize: o.Finalize, Now: r.at(o)}
@@ -469,6 +504,19 @@ func (r *replay) execLater(o op) (int, string) {
 		}
 		if o.ExpectStatus != "" && st.Status != o.ExpectStatus {
 			r.t.Errorf("fold %s: status %s, want %s (%+v)", o.Session, st.Status, o.ExpectStatus, st)
+		}
+		if want := r.results[i].Stdout; want != "" {
+			var wantSt FoldStatus
+			if err := json.Unmarshal([]byte(want), &wantSt); err != nil {
+				r.t.Fatal(err)
+			}
+			if st.Status != wantSt.Status {
+				r.t.Errorf("fold %s: status %s, want %s", o.Session, st.Status, wantSt.Status)
+			} else if st.Status != "skipped" &&
+				(st.Observations != wantSt.Observations || st.Reflected != wantSt.Reflected || st.Dropped != wantSt.Dropped) {
+				r.t.Errorf("fold %s: observations/reflected/dropped %d/%v/%d, want %d/%v/%d",
+					o.Session, st.Observations, st.Reflected, st.Dropped, wantSt.Observations, wantSt.Reflected, wantSt.Dropped)
+			}
 		}
 		return 0, ""
 	case "context":

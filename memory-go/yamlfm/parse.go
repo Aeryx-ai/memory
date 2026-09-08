@@ -60,11 +60,19 @@ func fromNode(n *yaml.Node) (Value, error) {
 		return fromNode(n.Content[0])
 	case yaml.MappingNode:
 		m := &Map{}
+		seen := map[string]bool{}
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			k := n.Content[i]
 			if k.Kind != yaml.ScalarNode {
 				return nil, fmt.Errorf("frontmatter: non-scalar key at line %d", k.Line)
 			}
+			// yaml@2.9.0 parses with its uniqueKeys: true default, which
+			// throws DUPLICATE_KEY rather than letting a later key silently
+			// overwrite an earlier one.
+			if seen[k.Value] {
+				return nil, fmt.Errorf("frontmatter: duplicate key %q at line %d", k.Value, k.Line)
+			}
+			seen[k.Value] = true
 			v, err := fromNode(n.Content[i+1])
 			if err != nil {
 				return nil, err

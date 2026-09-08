@@ -15,6 +15,9 @@ func TestProjectIDGolden(t *testing.T) {
 			if CodeOf(err) != Code(c.Error) {
 				t.Errorf("ProjectIDFromOrigin(%s): got %q, %v; want %s", c.Input, got, err, c.Error)
 			}
+			if err == nil || err.Error() != c.Message {
+				t.Errorf("ProjectIDFromOrigin(%s) message = %v; want %q", c.Input, err, c.Message)
+			}
 			continue
 		}
 		if err != nil || got != str(t, c.OK) {
@@ -26,6 +29,9 @@ func TestProjectIDGolden(t *testing.T) {
 		if c.Error != "" {
 			if CodeOf(err) != Code(c.Error) {
 				t.Errorf("AssertProjectID(%s): got %q, %v; want %s", c.Input, got, err, c.Error)
+			}
+			if err == nil || err.Error() != c.Message {
+				t.Errorf("AssertProjectID(%s) message = %v; want %q", c.Input, err, c.Message)
 			}
 			continue
 		}

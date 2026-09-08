@@ -11,9 +11,13 @@ import (
 
 var statuses = []string{"draft", "stable", "deprecated"}
 
+// Stamp is one OKF generated/verified entry. Known keys render in the order
+// Node writes them (by, at); unknown keys from a parsed file follow in their
+// file order, as Source does.
 type Stamp struct {
-	By string `json:"by"`
-	At string `json:"at,omitempty"`
+	By    string `json:"by"`
+	At    string `json:"at,omitempty"`
+	Extra *yamlfm.Map
 }
 
 // Source is one OKF sources[] entry. Known keys render in the order Node
@@ -54,7 +58,10 @@ type CreateInput struct {
 	Extra                    *yamlfm.Map
 }
 
-func quoteJSON(s string) string { b, _ := json.Marshal(s); return string(b) }
+// quoteJSON is JSON.stringify(s): the one helper every error message that
+// quotes user input calls, so no site re-marshals through encoding/json and
+// silently gains HTML escaping or a different control-character encoding.
+func quoteJSON(s string) string { return js.JSONQuote(s) }
 
 func checkText(field, text string) error {
 	if hit := FindSecret(text); hit != nil {
@@ -158,6 +165,9 @@ func copyMap(m *yamlfm.Map) *yamlfm.Map {
 }
 
 func Create(in CreateInput) (*Concept, error) {
+	if err := requireAt(in.At); err != nil {
+		return nil, err
+	}
 	status := in.Status
 	if status == "" {
 		status = "stable"
@@ -203,11 +213,22 @@ func stampOf(v yamlfm.Value) Stamp {
 	if !ok {
 		return Stamp{}
 	}
-	by, _ := m.Get("by")
-	at, _ := m.Get("at")
-	byS, _ := by.(string)
-	atS, _ := at.(string)
-	return Stamp{By: byS, At: atS}
+	s := Stamp{Extra: &yamlfm.Map{}}
+	for _, p := range m.Pairs {
+		switch p.Key {
+		case "by":
+			if str, isStr := p.Value.(string); isStr {
+				s.By = str
+			}
+		case "at":
+			if str, isStr := p.Value.(string); isStr {
+				s.At = str
+			}
+		default:
+			s.Extra.Pairs = append(s.Extra.Pairs, p)
+		}
+	}
+	return s
 }
 
 func sourceOf(v yamlfm.Value) Source {
@@ -295,6 +316,9 @@ func stampValue(s Stamp) *yamlfm.Map {
 	m := &yamlfm.Map{Pairs: []yamlfm.Pair{{Key: "by", Value: s.By}}}
 	if s.At != "" {
 		m.Pairs = append(m.Pairs, yamlfm.Pair{Key: "at", Value: s.At})
+	}
+	if s.Extra != nil {
+		m.Pairs = append(m.Pairs, s.Extra.Pairs...)
 	}
 	return m
 }

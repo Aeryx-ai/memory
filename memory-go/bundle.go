@@ -70,6 +70,9 @@ func (b *Bundle) Exists() bool {
 // runs git init when there is no repository and adds the remote when given
 // and absent. Idempotent.
 func (b *Bundle) Init(remote string, at time.Time) error {
+	if err := requireAt(at); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(b.Root, 0o777); err != nil {
 		return err
 	}

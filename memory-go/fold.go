@@ -66,6 +66,32 @@ type execSummarizer struct{ cmd string }
 // the Node CLI's --summarize-cmd does.
 func ExecSummarizer(cmd string) Summarizer { return execSummarizer{cmd} }
 
+const summarizerMaxOutput = 16 << 20
+
+var errSummarizerOutputTooLarge = errors.New("summarizer: output over 16MB")
+
+// limitedWriter caps what it buffers rather than growing without bound and
+// checking afterward: once a write would take the buffer over limit, Write
+// fails, which stops exec.Cmd's copy goroutine, closes its end of the
+// stdout pipe and so fails Run (often with the child's own SIGPIPE exit
+// status, once the pipe closes under it, rather than our error) so the
+// caller never holds the full oversized output in memory. tripped records
+// that Write is the reason Run failed, since Run's own error can be the
+// child's exit status instead of the write error that caused it.
+type limitedWriter struct {
+	buf     bytes.Buffer
+	limit   int
+	tripped bool
+}
+
+func (w *limitedWriter) Write(p []byte) (int, error) {
+	if w.buf.Len()+len(p) > w.limit {
+		w.tripped = true
+		return 0, errSummarizerOutputTooLarge
+	}
+	return w.buf.Write(p)
+}
+
 func (e execSummarizer) Summarize(prompt string) (string, error) {
 	file := filepath.Join(os.TempDir(), fmt.Sprintf("memory-prompt-%d-%d.txt", os.Getpid(), time.Now().UnixMilli()))
 	if err := os.WriteFile(file, []byte(prompt), 0o600); err != nil {
@@ -77,16 +103,17 @@ func (e execSummarizer) Summarize(prompt string) (string, error) {
 	c := exec.CommandContext(ctx, "sh", "-c", e.cmd)
 	c.Stdin = strings.NewReader(prompt)
 	c.Env = append(os.Environ(), "MEMORY_PROMPT_FILE="+file)
-	var out bytes.Buffer
-	c.Stdout = &out
+	out := &limitedWriter{limit: summarizerMaxOutput}
+	c.Stdout = out
 	c.Stderr = nil
-	if err := c.Run(); err != nil {
+	err := c.Run()
+	if out.tripped {
+		return "", errSummarizerOutputTooLarge
+	}
+	if err != nil {
 		return "", fmt.Errorf("summarizer: %w", err)
 	}
-	if out.Len() > 16<<20 {
-		return "", errors.New("summarizer: output over 16MB")
-	}
-	return out.String(), nil
+	return out.buf.String(), nil
 }
 
 type FoldOptions struct {
@@ -205,6 +232,9 @@ func orNone(s string) string {
 // past the checkpoint, as tokens, against observeAfterTokens. Finalize is
 // always due.
 func FoldDue(b *Bundle, o FoldOptions) (bool, string, error) {
+	if err := requireNow(o.Now); err != nil {
+		return false, "", err
+	}
 	st, err := loadState(b, o.Session)
 	if err != nil {
 		return false, "", err
@@ -227,6 +257,9 @@ func FoldDue(b *Bundle, o FoldOptions) (bool, string, error) {
 // RunFoldJob is runFoldJob(): single flight per session under
 // .locks/fold-<session slug>, skipped when there is nothing it can do.
 func RunFoldJob(b *Bundle, o FoldOptions) (FoldStatus, error) {
+	if err := requireNow(o.Now); err != nil {
+		return FoldStatus{}, err
+	}
 	hasSummarizer := o.Summarizer != nil
 	if !hasSummarizer && !o.Finalize {
 		return FoldStatus{Status: "skipped", Reason: "no summarizer"}, nil
@@ -277,8 +310,12 @@ func promoteToStable(b *Bundle, dir Dir, st *foldState, rel string, c *Concept, 
 	if err := writeAndLog(b, dir, LogUpdate, rel, revised, actor, at); err != nil {
 		return FoldStatus{}, err
 	}
-	Job{DirRel: dir.Rel, Message: "memory: fold " + session}.Run(b)
-	return FoldStatus{Status: "folded"}, nil
+	_, jobErr := Job{DirRel: dir.Rel, Message: "memory: fold " + session}.Run(b)
+	status := FoldStatus{Status: "folded"}
+	if jobErr != nil {
+		status.Error = "write completion: " + jobErr.Error()
+	}
+	return status, nil
 }
 
 func giveUpOrRetry(b *Bundle, st *foldState, rel string, cause error, bytes int64, now string) (FoldStatus, error) {
@@ -492,7 +529,7 @@ func runFold(b *Bundle, o FoldOptions) (FoldStatus, error) {
 	if err := writeAndLog(b, dir, LogUpdate, rel, revised, o.Actor, nowT); err != nil {
 		return FoldStatus{}, err
 	}
-	Job{DirRel: dir.Rel, Message: "memory: fold " + o.Session}.Run(b)
+	_, jobErr := Job{DirRel: dir.Rel, Message: "memory: fold " + o.Session}.Run(b)
 	if len(entries) > 0 {
 		st.LastError = nil
 		zero := 0
@@ -502,5 +539,9 @@ func runFold(b *Bundle, o FoldOptions) (FoldStatus, error) {
 	if err := saveState(b, st); err != nil {
 		return FoldStatus{}, err
 	}
-	return FoldStatus{Status: "folded", Observations: len(added), Reflected: reflected, Dropped: len(dropped)}, nil
+	status := FoldStatus{Status: "folded", Observations: len(added), Reflected: reflected, Dropped: len(dropped)}
+	if jobErr != nil {
+		status.Error = "write completion: " + jobErr.Error()
+	}
+	return status, nil
 }

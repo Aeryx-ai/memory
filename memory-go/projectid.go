@@ -1,11 +1,12 @@
 package memory
 
 import (
-	"encoding/json"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/aeryx-ai/memory/memory-go/internal/js"
 )
 
 var (
@@ -32,22 +33,20 @@ func AssertProjectID(id string) (string, error) {
 		}
 	}
 	if bad {
-		q, _ := json.Marshal(id)
-		return "", Errorf(CodeRefused, "malformed project id %s", q)
+		return "", Errorf(CodeRefused, "malformed project id %s", quoteJSON(id))
 	}
 	return id, nil
 }
 
 func malformedOrigin(u string) error {
-	q, _ := json.Marshal(u)
-	return Errorf(CodeRefused, "malformed project id origin %s", q)
+	return Errorf(CodeRefused, "malformed project id origin %s", quoteJSON(u))
 }
 
 // ProjectIDFromOrigin turns a git origin into host/owner/repo: scheme,
 // credentials, port and .git stripped, host lowercased, scp form accepted,
 // filesystem paths refused.
 func ProjectIDFromOrigin(url string) (string, error) {
-	u := strings.TrimSpace(url)
+	u := js.Trim(url)
 	if strings.HasPrefix(u, "/") || strings.HasPrefix(u, ".") || strings.HasPrefix(u, "~") || originIsPath.MatchString(u) {
 		return "", malformedOrigin(u)
 	}
@@ -57,17 +56,17 @@ func ProjectIDFromOrigin(url string) (string, error) {
 		u = originCred.ReplaceAllString(u, "")
 		i := strings.Index(u, "/")
 		if i == -1 {
-			return "", malformedOrigin(strings.TrimSpace(url))
+			return "", malformedOrigin(js.Trim(url))
 		}
 		host, p = u[:i], u[i+1:]
 	} else {
 		m := originScp.FindStringSubmatch(u)
 		if m == nil {
-			return "", malformedOrigin(strings.TrimSpace(url))
+			return "", malformedOrigin(js.Trim(url))
 		}
 		host, p = m[2], m[3]
 	}
-	host = originPort.ReplaceAllString(strings.ToLower(host), "")
+	host = originPort.ReplaceAllString(js.Lower(host), "")
 	p = originDotGit.ReplaceAllString(originTrail.ReplaceAllString(p, ""), "")
 	return AssertProjectID(host + "/" + p)
 }
@@ -79,7 +78,7 @@ func gitQuiet(cwd string, args ...string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	return strings.TrimSpace(string(out)), true
+	return js.Trim(string(out)), true
 }
 
 func LocalProjectID(cwd string) (string, error) {

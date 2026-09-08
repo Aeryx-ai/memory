@@ -52,23 +52,34 @@ func Slice16(s string, end int) string {
 // Lower is String.prototype.toLowerCase: Go's ToLower plus the two
 // SpecialCasing rules JavaScript applies that Go's ToLower does not: the
 // final sigma, and U+0130 lowering to "i" plus a combining dot above.
+//
+// Final_Sigma applies only to a Σ the input actually held in upper case,
+// never to a σ already lowercase: JavaScript's toLowerCase maps a
+// case-ignorable-bounded Σ to ς, but a σ already in the string is left
+// alone regardless of what follows it (Lower("ασ") == "ασ", not "ας").
 func Lower(s string) string {
-	l := strings.ToLower(strings.ReplaceAll(s, "İ", "i̇"))
-	if !strings.ContainsRune(l, 'σ') {
-		return l
-	}
-	rs := []rune(l)
-	for i, r := range rs {
-		if r != 'σ' {
+	replaced := []rune(strings.ReplaceAll(s, "İ", "i̇"))
+	lowered := make([]rune, len(replaced))
+	wasUpperSigma := make([]bool, len(replaced))
+	for i, r := range replaced {
+		if r == 'Σ' {
+			lowered[i] = 'σ'
+			wasUpperSigma[i] = true
 			continue
 		}
-		before := i > 0 && unicode.IsLetter(rs[i-1])
-		after := i+1 < len(rs) && unicode.IsLetter(rs[i+1])
+		lowered[i] = unicode.ToLower(r)
+	}
+	for i, was := range wasUpperSigma {
+		if !was {
+			continue
+		}
+		before := i > 0 && unicode.IsLetter(lowered[i-1])
+		after := i+1 < len(lowered) && unicode.IsLetter(lowered[i+1])
 		if before && !after {
-			rs[i] = 'ς'
+			lowered[i] = 'ς'
 		}
 	}
-	return string(rs)
+	return string(lowered)
 }
 
 func units(s string) []uint16 { return utf16.Encode([]rune(s)) }

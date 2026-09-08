@@ -99,6 +99,9 @@ func TestSlugGolden(t *testing.T) {
 			if CodeOf(err) != Code(c.Error) {
 				t.Errorf("Slugify(%s): got %q, %v; want error %s", c.Input, got, err, c.Error)
 			}
+			if err == nil || err.Error() != c.Message {
+				t.Errorf("Slugify(%s) message = %v; want %q", c.Input, err, c.Message)
+			}
 			continue
 		}
 		if err != nil || got != str(t, c.OK) {
@@ -113,6 +116,9 @@ func TestActorGolden(t *testing.T) {
 		if c.Error != "" {
 			if CodeOf(err) != Code(c.Error) {
 				t.Errorf("ParseActor(%s): want error %s, got %v", c.Input, c.Error, err)
+			}
+			if err == nil || err.Error() != c.Message {
+				t.Errorf("ParseActor(%s) message = %v; want %q", c.Input, err, c.Message)
 			}
 			continue
 		}

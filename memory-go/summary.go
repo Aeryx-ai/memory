@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"regexp"
 	"strings"
+
+	"github.com/aeryx-ai/memory/memory-go/internal/js"
 )
 
 type Observation struct {
@@ -60,7 +62,7 @@ func ParseSummaryBody(body string) SummaryBody {
 	out := SummaryBody{Reflections: []Reflection{}, Observations: []Observation{}}
 	section := ""
 	for _, raw := range strings.Split(body, "\n") {
-		line := strings.TrimRight(raw, " \t\r\n\v\f")
+		line := js.TrimEnd(raw)
 		switch line {
 		case "# Reflections":
 			section = "r"

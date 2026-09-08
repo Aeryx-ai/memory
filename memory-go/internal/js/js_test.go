@@ -96,4 +96,9 @@ func TestISOAndTrim(t *testing.T) {
 	if got := Lower("ΣΑΣ İ"); got != "σας i̇" {
 		t.Errorf("Lower = %q", got)
 	}
+	// Final_Sigma applies only to a Σ the input held upper case; an existing
+	// lowercase σ at the end of a word is never rewritten to ς.
+	if got := Lower("ασ"); got != "ασ" {
+		t.Errorf("Lower(existing final sigma) = %q, want %q", got, "ασ")
+	}
 }

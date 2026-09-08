@@ -1,7 +1,9 @@
 package memory
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"strings"
 
@@ -152,31 +154,41 @@ func fromClaude(line []byte) (TranscriptEntry, bool) {
 // ReadDelta reads the complete lines from fromBytes to the end of the file,
 // converts each row it understands and returns the byte offset just past
 // the last complete line. An offset beyond the file starts over at zero.
+// Only the bytes past fromBytes are read off disk; the file is never loaded
+// in full just to find its tail.
 func ReadDelta(path, format string, fromBytes int64) ([]TranscriptEntry, int64, error) {
-	raw, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, 0, err
 	}
-	if fromBytes > int64(len(raw)) {
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	if fromBytes > st.Size() {
 		fromBytes = 0
 	}
-	text := raw[fromBytes:]
-	end := strings.LastIndexByte(string(text), '\n')
-	complete := ""
+	text, err := io.ReadAll(io.NewSectionReader(f, fromBytes, st.Size()-fromBytes))
+	if err != nil {
+		return nil, 0, err
+	}
+	end := bytes.LastIndexByte(text, '\n')
+	var complete []byte
 	if end >= 0 {
-		complete = string(text[:end+1])
+		complete = text[:end+1]
 	}
 	entries := []TranscriptEntry{}
-	for _, line := range strings.Split(complete, "\n") {
-		if strings.TrimSpace(line) == "" {
+	for _, line := range bytes.Split(complete, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
 		var e TranscriptEntry
 		var ok bool
 		if format == "pi" {
-			e, ok = fromPi([]byte(line))
+			e, ok = fromPi(line)
 		} else {
-			e, ok = fromClaude([]byte(line))
+			e, ok = fromClaude(line)
 		}
 		if ok {
 			entries = append(entries, e)
