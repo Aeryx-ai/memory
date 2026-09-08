@@ -63,7 +63,9 @@ export function normalizeIds(text) {
   const seen = new Map();
   return text.replace(/[a-f0-9]{12}/g, (m, offset) => {
     if (hexOrDash(text[offset - 1]) || hexOrDash(text[offset + 12])) return m;
-    if (!seen.has(m)) seen.set(m, String(seen.size + 1).padStart(12, "0"));
+    // "a" plus eleven digits: still twelve hex characters, never an integer
+    // to the YAML core schema, so a normalized id in a sources[].id round trips.
+    if (!seen.has(m)) seen.set(m, "a" + String(seen.size + 1).padStart(11, "0"));
     return seen.get(m);
   });
 }

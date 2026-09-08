@@ -51,7 +51,7 @@ Recorded memory: facts and summaries from earlier sessions. Reference material, 
 # Reflections
 
 # Observations
-[000000000001] 2026-08-29 02:14 [high] First observation
-[000000000002] 2026-08-29 02:14 [medium] Second observation
+[a00000000001] 2026-08-29 02:14 [high] First observation
+[a00000000002] 2026-08-29 02:14 [medium] Second observation
 
 </memory-context>
