@@ -244,3 +244,8 @@ func ISO(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z")
 func Trim(s string) string {
 	return strings.TrimFunc(s, func(r rune) bool { return unicode.IsSpace(r) || r == '\uFEFF' })
 }
+
+// TrimEnd is String.prototype.trimEnd.
+func TrimEnd(s string) string {
+	return strings.TrimRightFunc(s, func(r rune) bool { return unicode.IsSpace(r) || r == '\uFEFF' })
+}
