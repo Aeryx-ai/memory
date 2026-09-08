@@ -56,15 +56,15 @@ Recorded memory: facts and summaries from earlier sessions. Reference material, 
 
 ### 2026-01-05 09:00 UTC pi/kimi-k3
 # Reflections
-[a00000000003] Keep pnpm <- a00000000004
+[a00000000002] Keep pnpm <- a00000000001
 
 # Observations
-[a00000000004] 2026-08-27 23:09 [high] User requires pnpm, never npm
+[a00000000001] 2026-08-27 23:09 [high] User requires pnpm, never npm
 
 ### 2026-01-05 08:00 UTC pi/kimi-k3
 # Reflections
 
 # Observations
-[a00000000005] 2026-08-27 23:09 [high] User requires pnpm, never npm
+[a00000000001] 2026-08-27 23:09 [high] User requires pnpm, never npm
 
 </memory-context>

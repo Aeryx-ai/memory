@@ -15,6 +15,7 @@ import { projectIdFromOrigin, assertProjectId } from "../../src/project-id.mjs";
 import { parseSummaryBody, renderSummaryBody, pruneObservations, estimateTokens } from "../../src/summary.mjs";
 import { OBSERVER_PROMPT, REFLECTOR_PROMPT, utcMinute, capDelta, sessionSlug } from "../../src/fold.mjs";
 import { readDelta, serializeEntries } from "../../src/transcript.mjs";
+import { compareFold } from "../../src/compare.mjs";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..", "..");
@@ -53,29 +54,37 @@ function projectRepo(base, id) {
   }
   return dir;
 }
-// 12-hex ids are random at fold time; rewrite them per file in order of first
-// appearance so the tree is stable across regenerations. The Go replay applies
-// the same rewrite to its own output before diffing.
 // A 12-hex run that touches another hex digit or a dash is part of something
-// longer (a uuid segment, a hash) and is left alone.
+// longer (a uuid segment, a hash) and is left alone. Each bundle file is
+// numbered from a00000000001 in order of first appearance, and every raw id
+// seen that way is recorded in `union` (raw ids are random, so one raw id has
+// one normalized form). Text outputs that quote several files (a context
+// render) are rewritten through the union so they agree with the files.
 const hexOrDash = (ch) => ch !== undefined && /[a-f0-9-]/.test(ch);
-export function normalizeIds(text) {
+export function normalizeIds(text, union) {
   const seen = new Map();
   return text.replace(/[a-f0-9]{12}/g, (m, offset) => {
     if (hexOrDash(text[offset - 1]) || hexOrDash(text[offset + 12])) return m;
     // "a" plus eleven digits: still twelve hex characters, never an integer
     // to the YAML core schema, so a normalized id in a sources[].id round trips.
     if (!seen.has(m)) seen.set(m, "a" + String(seen.size + 1).padStart(11, "0"));
+    if (union && !union.has(m)) union.set(m, seen.get(m));
     return seen.get(m);
   });
 }
-function copyTree(from, to, base) {
+export function applyIds(text, union) {
+  return text.replace(/[a-f0-9]{12}/g, (m, offset) => {
+    if (hexOrDash(text[offset - 1]) || hexOrDash(text[offset + 12])) return m;
+    return union.get(m) ?? m;
+  });
+}
+function copyTree(from, to, base, union) {
   const skip = new Set([".git", ".locks", ".state"]);
-  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+  for (const entry of fs.readdirSync(from, { withFileTypes: true }).sort((a, b) => compareFold(a.name, b.name))) {
     if (skip.has(entry.name) || entry.name.endsWith(".tmp")) continue;
     const src = path.join(from, entry.name), dst = path.join(to, entry.name);
-    if (entry.isDirectory()) { fs.mkdirSync(dst, { recursive: true }); copyTree(src, dst, base); continue; }
-    fs.writeFileSync(dst, normalizeIds(fs.readFileSync(src, "utf8").replaceAll(base, "<TMP>")));
+    if (entry.isDirectory()) { fs.mkdirSync(dst, { recursive: true }); copyTree(src, dst, base, union); continue; }
+    fs.writeFileSync(dst, normalizeIds(fs.readFileSync(src, "utf8").replaceAll(base, "<TMP>"), union));
   }
 }
 
@@ -85,7 +94,7 @@ async function runOps() {
   fs.mkdirSync(path.join(base, "transcripts"));
   for (const f of ["pi.jsonl", "claude.jsonl"]) fs.copyFileSync(path.join(FIXTURES, f), path.join(base, "transcripts", f));
   const ops = JSON.parse(fs.readFileSync(path.join(HERE, "ops.json"), "utf8"));
-  const results = [];
+  const results = [], texts = [];
   for (const [i, op] of ops.entries()) {
     clock = Date.parse(op.at);
     const argv = ["--dir", root];
@@ -126,17 +135,19 @@ async function runOps() {
     const stdout = r.stdout.replaceAll(base, "<TMP>");
     if (r.code !== (op.expect ?? 0)) throw new Error(`op ${i} ${op.cmd}: exit ${r.code}, want ${op.expect ?? 0}: ${r.stderr}`);
     if (op.expectStatus) { const j = JSON.parse(stdout); if (j.status !== op.expectStatus) throw new Error(`op ${i}: status ${j.status}, want ${op.expectStatus}`); }
-    // Both can carry a fold-generated 12-hex observation/reflection id (context
-    // prints Session Summary bodies verbatim; recall never does today, but stays
-    // normalized too so it can't silently regress into a random-id leak later).
-    if (op.cmd === "context") writeOut(`context/${op.out}.txt`, normalizeIds(stdout));
-    if (op.cmd === "recall") writeOut(`recall/${op.out}.json`, normalizeIds(stdout));
-    results.push({ i, cmd: op.cmd, code: r.code, stdout: normalizeIds(stdout) });
+    if (op.cmd === "context") texts.push([`context/${op.out}.txt`, stdout]);
+    if (op.cmd === "recall") writeOut(`recall/${op.out}.json`, stdout);
+    results.push({ i, cmd: op.cmd, code: r.code, stdout });
   }
+  // The bundle files are numbered per file; every text output that quotes
+  // them is rewritten through the union of those numberings afterwards, so
+  // a context render equals what rendering the golden bundle produces.
+  const union = new Map();
   fs.mkdirSync(path.join(OUT, "bundle"), { recursive: true });
-  copyTree(root, path.join(OUT, "bundle"), base);
+  copyTree(root, path.join(OUT, "bundle"), base, union);
+  for (const [rel, text] of texts) writeOut(rel, applyIds(text, union));
   writeOut("ops.json", fs.readFileSync(path.join(HERE, "ops.json"), "utf8"));
-  writeOut("results.jsonl", results.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  writeOut("results.jsonl", results.map((r) => JSON.stringify({ ...r, stdout: applyIds(r.stdout, union) })).join("\n") + "\n");
   fs.rmSync(base, { recursive: true, force: true });
 }
 
