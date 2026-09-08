@@ -8,7 +8,7 @@ goldens:
 go-test:
 	$(MAKE) -C memory-go test
 test: goldens
-	@git diff --quiet -- memory-go/testdata || { echo "goldens drift: memory-go/testdata changed after regeneration; commit the regenerated tree with the src/ change"; git --no-pager diff --stat -- memory-go/testdata; exit 1; }
+	@test -z "$$(git status --porcelain -- memory-go/testdata)" || { echo "goldens drift: memory-go/testdata changed after regeneration; commit the regenerated tree with the src/ change"; git --no-pager status --short -- memory-go/testdata; exit 1; }
 	npm test
 	$(MAKE) -C memory-go test
 	@[ -d "$${MEMORY_DIR:-$$HOME/.agents/memory}" ] && node bin/memory.mjs check || true

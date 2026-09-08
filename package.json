@@ -14,5 +14,5 @@
   "pi": { "extensions": ["./extensions/pi.ts"] },
   "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "typebox": "*" },
   "peerDependenciesMeta": { "@earendil-works/pi-coding-agent": { "optional": true }, "typebox": { "optional": true } },
-  "dependencies": { "yaml": "^2.9.0" }
+  "dependencies": { "yaml": "2.9.0" }
 }
