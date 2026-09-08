@@ -8,16 +8,20 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 )
 
-// The summarizer commands from test/golden/gen.mjs, keyed by name.
+// The summarizer commands from test/golden/gen.mjs, keyed by name. dup and
+// leaky cite the claude fixture's first entry uuid directly: gen.mjs derives
+// it the same way (see CLAUDE_ID there), and it never changes since the
+// fixture is checked in.
 var summarizers = map[string]string{
 	"observer": `sh -c 'grep -q "You distill" - && echo "Keep pnpm <- $(cat "$MEMORY_PROMPT_FILE" | grep -o "\[[a-f0-9]\{12\}\]" | head -1 | tr -d "[]")" || echo "[high] User requires pnpm, never npm | a1b2c3d4"'`,
-	"dup":      `sh -c 'echo "[high] First observation | CLAUDE_ID"; echo "[medium] Second observation | CLAUDE_ID"'`,
-	"leaky":    `sh -c 'echo "[high] Key is AKIAIOSFODNN7EXAMPLE | CLAUDE_ID"'`,
+	"dup":      `sh -c 'echo "[high] First observation | 2a55d202-0256-4c6a-acb8-d2c40a35847f"; echo "[medium] Second observation | 2a55d202-0256-4c6a-acb8-d2c40a35847f"'`,
+	"leaky":    `sh -c 'echo "[high] Key is AKIAIOSFODNN7EXAMPLE | 2a55d202-0256-4c6a-acb8-d2c40a35847f"'`,
 	"failing":  `sh -c 'exit 7'`,
 }
 
@@ -63,9 +67,34 @@ func hexOrDash(b byte) bool { return b == '-' || (b >= '0' && b <= '9') || (b >=
 
 // normalizeIDs mirrors gen.mjs: 12-hex ids renumbered per text in order of
 // first appearance; a run touching another hex digit or a dash is part of
-// something longer (a uuid segment) and is left alone.
-func normalizeIDs(text string) string {
+// something longer (a uuid segment) and is left alone. Every raw id seen is
+// recorded in union when one is given, so text outputs quoting several
+// files can be rewritten through applyIDs to agree with the files.
+func normalizeIDs(text string, union map[string]string) string {
 	seen := map[string]string{}
+	return rewriteIDs(text, func(id string) string {
+		if _, ok := seen[id]; !ok {
+			seen[id] = fmt.Sprintf("a%011d", len(seen)+1) // never an integer to the YAML core schema
+			if union != nil {
+				if _, ok := union[id]; !ok {
+					union[id] = seen[id]
+				}
+			}
+		}
+		return seen[id]
+	})
+}
+
+func applyIDs(text string, union map[string]string) string {
+	return rewriteIDs(text, func(id string) string {
+		if n, ok := union[id]; ok {
+			return n
+		}
+		return id
+	})
+}
+
+func rewriteIDs(text string, f func(string) string) string {
 	var b strings.Builder
 	last := 0
 	for _, m := range hexID.FindAllStringIndex(text, -1) {
@@ -74,10 +103,7 @@ func normalizeIDs(text string) string {
 		if (m[0] > 0 && hexOrDash(text[m[0]-1])) || (m[1] < len(text) && hexOrDash(text[m[1]])) {
 			b.WriteString(id)
 		} else {
-			if _, ok := seen[id]; !ok {
-				seen[id] = fmt.Sprintf("a%011d", len(seen)+1)
-			}
-			b.WriteString(seen[id])
+			b.WriteString(f(id))
 		}
 		last = m[1]
 	}
@@ -91,7 +117,9 @@ type replay struct {
 	b       *Bundle
 	ops     []op
 	results []opResult
-	stop    map[string]bool // op cmds this task does not run yet
+	stop    map[string]bool   // op cmds this task does not run yet
+	union   map[string]string // raw id to its per-file normalized form, filled by compareTree
+	texts   map[string]string // context outputs by golden rel, compared after compareTree
 }
 
 func loadOps(t *testing.T) ([]op, []opResult) {
@@ -134,7 +162,7 @@ func newReplay(t *testing.T, stop ...string) *replay {
 		os.WriteFile(filepath.Join(base, "transcripts", f), raw, 0o644)
 	}
 	ops, results := loadOps(t)
-	r := &replay{t: t, base: base, b: New(filepath.Join(base, "memory")), ops: ops, results: results, stop: map[string]bool{}}
+	r := &replay{t: t, base: base, b: New(filepath.Join(base, "memory")), ops: ops, results: results, stop: map[string]bool{}, union: map[string]string{}, texts: map[string]string{}}
 	for _, s := range stop {
 		r.stop[s] = true
 	}
@@ -162,7 +190,7 @@ func (r *replay) dir(o op) Dir {
 }
 
 func (r *replay) normalize(s string) string {
-	return normalizeIDs(strings.ReplaceAll(s, r.base, "<TMP>"))
+	return normalizeIDs(strings.ReplaceAll(s, r.base, "<TMP>"), r.union)
 }
 
 // run executes ops in order until one whose cmd is in stop; returns the
@@ -177,7 +205,9 @@ func (r *replay) run() int {
 		if code != want.Code {
 			r.t.Fatalf("op %d %s: exit %d, want %d (%s)", i, o.Cmd, code, want.Code, stdout)
 		}
-		if stdout != "" && want.Stdout != "" && stdout != want.Stdout {
+		// Outputs that quote summaries carry ids; those are compared after the
+		// tree walk fills the union (compareTexts). The rest compare here.
+		if stdout != "" && want.Stdout != "" && o.Cmd != "context" && stdout != want.Stdout {
 			r.t.Errorf("op %d %s: stdout\n got %s\nwant %s", i, o.Cmd, stdout, want.Stdout)
 		}
 	}
@@ -286,31 +316,39 @@ func jsonLine(v any) string {
 
 // compareTree diffs every file under the golden bundle against the replayed
 // bundle, skipping paths for which skip returns true. Both sides are
-// normalized the way gen.mjs normalizes.
+// normalized the way gen.mjs normalizes: per file, walking files in
+// CompareFold order of their names so the union map fills the same way.
 func (r *replay) compareTree(skip func(rel string) bool) {
 	r.t.Helper()
 	goldenRoot := filepath.Join(goldenDir, "bundle")
 	seen := map[string]bool{}
+	var rels []string
 	filepath.WalkDir(goldenRoot, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		rel := filepath.ToSlash(strings.TrimPrefix(p, goldenRoot+string(filepath.Separator)))
-		seen[rel] = true
-		if skip(rel) {
-			return nil
-		}
-		want, _ := os.ReadFile(p)
-		got, ok := r.b.Read(rel)
-		if !ok {
-			r.t.Errorf("%s: missing in replay", rel)
-			return nil
-		}
-		if r.normalize(got) != string(want) {
-			r.t.Errorf("%s differs\n--- got ---\n%s\n--- want ---\n%s", rel, r.normalize(got), want)
-		}
+		rels = append(rels, filepath.ToSlash(strings.TrimPrefix(p, goldenRoot+string(filepath.Separator))))
 		return nil
 	})
+	slices.SortStableFunc(rels, func(a, b string) int { return CompareFold(a, b) })
+	for _, rel := range rels {
+		seen[rel] = true
+		want, _ := os.ReadFile(filepath.Join(goldenRoot, filepath.FromSlash(rel)))
+		got, ok := r.b.Read(rel)
+		if !ok {
+			if !skip(rel) {
+				r.t.Errorf("%s: missing in replay", rel)
+			}
+			continue
+		}
+		norm := r.normalize(got) // fills the union even for skipped files
+		if skip(rel) {
+			continue
+		}
+		if norm != string(want) {
+			r.t.Errorf("%s differs\n--- got ---\n%s\n--- want ---\n%s", rel, norm, want)
+		}
+	}
 	filepath.WalkDir(r.b.Root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -333,6 +371,22 @@ func (r *replay) compareTree(skip func(rel string) bool) {
 	})
 }
 
+// compareTexts compares the context outputs captured during the run, rewritten
+// through the union the tree walk filled, against their golden files.
+func (r *replay) compareTexts() {
+	r.t.Helper()
+	for rel, text := range r.texts {
+		want, err := os.ReadFile(filepath.Join(goldenDir, rel))
+		if err != nil {
+			r.t.Errorf("%s: %v", rel, err)
+			continue
+		}
+		if got := applyIDs(strings.ReplaceAll(text, r.base, "<TMP>"), r.union); got != string(want) {
+			r.t.Errorf("%s differs\n--- got ---\n%s\n--- want ---\n%s", rel, got, want)
+		}
+	}
+}
+
 // TestGoldenReplayWrites runs every op before the first fold and compares
 // the tree except the files ops after that point write or rewrite. Task 13
 // adds the full replay.
@@ -348,8 +402,56 @@ func TestGoldenReplayWrites(t *testing.T) {
 	})
 }
 
-// execLater covers fold, context and recall; Task 13 replaces the body.
 func (r *replay) execLater(o op) (int, string) {
-	r.t.Fatalf("op %s not implemented yet", o.Cmd)
+	switch o.Cmd {
+	case "fold":
+		fo := FoldOptions{Session: o.Session, Actor: o.Actor, Transcript: filepath.Join(r.base, "transcripts", o.Transcript), Format: o.Format, ProjectID: o.Project, Finalize: o.Finalize, Now: r.at(o)}
+		fo.Settings = FoldSettings{o.Settings["observeAfterTokens"], o.Settings["reflectAfterTokens"], o.Settings["observationsMaxTokens"], o.Settings["observationsTargetTokens"], o.Settings["observerMaxTokens"]}
+		if o.Summarizer != "" {
+			fo.Summarizer = ExecSummarizer(summarizers[o.Summarizer])
+		}
+		due, reason, err := FoldDue(r.b, fo)
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		var st FoldStatus
+		if !due {
+			st = FoldStatus{Status: "skipped", Reason: reason}
+		} else if st, err = RunFoldJob(r.b, fo); err != nil {
+			r.t.Fatal(err)
+		} else if st.Reason != "" {
+			st.Status = "skipped"
+		}
+		if o.ExpectStatus != "" && st.Status != o.ExpectStatus {
+			r.t.Errorf("fold %s: status %s, want %s (%+v)", o.Session, st.Status, o.ExpectStatus, st)
+		}
+		return 0, ""
+	case "context":
+		text, err := RenderContext(r.b, ContextOptions{ProjectID: o.Project, Session: o.Session, Summaries: o.Summaries, Budget: o.Budget})
+		if err != nil {
+			return codeOf(err), ""
+		}
+		r.texts["context/"+o.Out+".txt"] = text // compared by compareTexts once the union is known
+		return 0, text
+	case "recall":
+		hits, err := Recall(r.b, o.Project, o.Type, o.Query, o.Deprecated)
+		if err != nil {
+			return codeOf(err), ""
+		}
+		got := hitsJSON(hits)
+		want, _ := os.ReadFile(filepath.Join(goldenDir, "recall", o.Out+".json"))
+		if got != string(want) {
+			r.t.Errorf("recall %s differs\n got %s\nwant %s", o.Out, got, want)
+		}
+		return 0, got
+	}
+	r.t.Fatalf("op %s not implemented", o.Cmd)
 	return 1, ""
+}
+
+func TestGoldenReplayFull(t *testing.T) {
+	r := newReplay(t)
+	r.run()
+	r.compareTree(func(string) bool { return false })
+	r.compareTexts()
 }
