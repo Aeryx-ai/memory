@@ -334,15 +334,15 @@ func (r *replay) compareTree(skip func(rel string) bool) {
 }
 
 // TestGoldenReplayWrites runs every op before the first fold and compares
-// the tree except the files later fold ops rewrite. Task 13 adds the full
-// replay.
+// the tree except the files ops after that point write or rewrite. Task 13
+// adds the full replay.
 func TestGoldenReplayWrites(t *testing.T) {
 	r := newReplay(t, "fold", "context", "recall")
 	r.run()
 	alpha := "projects/github.com/golden/alpha/"
 	r.compareTree(func(rel string) bool {
-		if rel == alpha+"index.md" || rel == alpha+"log.md" {
-			return true
+		if rel == alpha+"index.md" || rel == alpha+"log.md" || rel == alpha+"reference/after-the-failed-fold.md" {
+			return true // rewritten or written by ops after the first fold
 		}
 		return strings.HasPrefix(rel, alpha+"session-summaries/20260105")
 	})
