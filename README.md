@@ -20,6 +20,10 @@ claude plugin install memory@aeryx
 
 then set `"autoMemoryEnabled": false` in `~/.claude/settings.json` so native auto memory and this plugin do not fight. See `claude-plugin/README.md` for what each hook does.
 
+## Go SDK
+
+`memory-go/` is a Go module with the same bundle contract, byte compatible with the CLI and proven by golden tests generated from the CLI. See `memory-go/README.md`.
+
 ## Set up the bundle
 
 ```
