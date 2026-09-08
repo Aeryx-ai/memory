@@ -1,0 +1,612 @@
+{
+  "slug": [
+    {
+      "input": "Hello World",
+      "ok": "hello-world"
+    },
+    {
+      "input": "  spaced  ",
+      "ok": "spaced"
+    },
+    {
+      "input": "Ünïcödé Tïtle",
+      "ok": "unicode-title"
+    },
+    {
+      "input": "日本語",
+      "error": "refused",
+      "message": "title \"日本語\" yields an empty slug"
+    },
+    {
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ok": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "input": "A title long enough to exceed the eighty character slug limit so truncation and trailing dash trimming both happen here",
+      "ok": "a-title-long-enough-to-exceed-the-eighty-character-slug-limit-so-truncation-and"
+    },
+    {
+      "input": "[correction] pi extension",
+      "ok": "correction-pi-extension"
+    },
+    {
+      "input": "claude-code/claude",
+      "ok": "claude-code-claude"
+    },
+    {
+      "input": "---",
+      "error": "refused",
+      "message": "title \"---\" yields an empty slug"
+    },
+    {
+      "input": "über café",
+      "ok": "uber-cafe"
+    },
+    {
+      "input": "ß",
+      "error": "refused",
+      "message": "title \"ß\" yields an empty slug"
+    },
+    {
+      "input": "İstanbul",
+      "ok": "istanbul"
+    },
+    {
+      "input": "",
+      "error": "refused",
+      "message": "title \"\" yields an empty slug"
+    }
+  ],
+  "actor": [
+    {
+      "input": "human:guy",
+      "ok": {
+        "value": "human:guy",
+        "class": "human"
+      }
+    },
+    {
+      "input": "process:migrate-claude",
+      "ok": {
+        "value": "process:migrate-claude",
+        "class": "process"
+      }
+    },
+    {
+      "input": "pi/kimi-k3",
+      "ok": {
+        "value": "pi/kimi-k3",
+        "class": "agent"
+      }
+    },
+    {
+      "input": "claude-code/claude-fable-5",
+      "ok": {
+        "value": "claude-code/claude-fable-5",
+        "class": "agent"
+      }
+    },
+    {
+      "input": "claude-code/claude:1",
+      "ok": {
+        "value": "claude-code/claude:1",
+        "class": "agent"
+      }
+    },
+    {
+      "input": "human:",
+      "error": "refused",
+      "message": "malformed actor \"human:\": use <producer>/<version>, human:<id> or process:<id>"
+    },
+    {
+      "input": "human:a b",
+      "error": "refused",
+      "message": "malformed actor \"human:a b\": use <producer>/<version>, human:<id> or process:<id>"
+    },
+    {
+      "input": "pi",
+      "error": "refused",
+      "message": "malformed actor \"pi\": use <producer>/<version>, human:<id> or process:<id>"
+    },
+    {
+      "input": "pi/",
+      "error": "refused",
+      "message": "malformed actor \"pi/\": use <producer>/<version>, human:<id> or process:<id>"
+    },
+    {
+      "input": "/x",
+      "error": "refused",
+      "message": "malformed actor \"/x\": use <producer>/<version>, human:<id> or process:<id>"
+    },
+    {
+      "input": "bad actor",
+      "error": "refused",
+      "message": "malformed actor \"bad actor\": use <producer>/<version>, human:<id> or process:<id>"
+    },
+    {
+      "input": "process:x/y",
+      "error": "refused",
+      "message": "malformed actor \"process:x/y\": use <producer>/<version>, human:<id> or process:<id>"
+    },
+    {
+      "input": "human:x/y",
+      "error": "refused",
+      "message": "malformed actor \"human:x/y\": use <producer>/<version>, human:<id> or process:<id>"
+    }
+  ],
+  "secret": [
+    {
+      "input": "nothing here",
+      "expected": null
+    },
+    {
+      "input": "AKIAIOSFODNN7EXAMPLE",
+      "expected": {
+        "name": "aws",
+        "index": 0
+      }
+    },
+    {
+      "input": "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij123456",
+      "expected": {
+        "name": "github",
+        "index": 0
+      }
+    },
+    {
+      "input": "sk-ant-abcdefghijklmnopqrstuvwxyz0123456789",
+      "expected": {
+        "name": "anthropic",
+        "index": 0
+      }
+    },
+    {
+      "input": "sk-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN0123",
+      "expected": {
+        "name": "openai",
+        "index": 0
+      }
+    },
+    {
+      "input": "123456789:AAabcdefghijklmnopqrstuvwxyz0123456789",
+      "expected": {
+        "name": "telegram",
+        "index": 0
+      }
+    },
+    {
+      "input": "-----BEGIN RSA PRIVATE KEY-----",
+      "expected": {
+        "name": "pem",
+        "index": 0
+      }
+    },
+    {
+      "input": "eyJhbGciOiJI.eyJzdWIiOiIx.SflKxwRJSMeKKF",
+      "expected": {
+        "name": "jwt",
+        "index": 0
+      }
+    },
+    {
+      "input": "Bearer abcdefghijklmnopqrstuvwxyz",
+      "expected": {
+        "name": "bearer",
+        "index": 0
+      }
+    },
+    {
+      "input": "password = abcdefghijkl",
+      "expected": null
+    },
+    {
+      "input": "password = abcdefghijk1",
+      "expected": {
+        "name": "assignment",
+        "index": 0
+      }
+    },
+    {
+      "input": "api_key: \"x1234567890123\"",
+      "expected": {
+        "name": "assignment",
+        "index": 0
+      }
+    },
+    {
+      "input": "token=abcdefghijkl token=abc123456789",
+      "expected": {
+        "name": "assignment",
+        "index": 19
+      }
+    },
+    {
+      "input": "secret: a1b2c3d4e5f6g7",
+      "expected": {
+        "name": "assignment",
+        "index": 0
+      }
+    },
+    {
+      "input": "AKIA1234567890123456 then ghp_x",
+      "expected": {
+        "name": "aws",
+        "index": 0
+      }
+    }
+  ],
+  "projectid": [
+    {
+      "input": "git@github.com:guygrigsby/x.git",
+      "ok": "github.com/guygrigsby/x"
+    },
+    {
+      "input": "https://github.com/guygrigsby/x",
+      "ok": "github.com/guygrigsby/x"
+    },
+    {
+      "input": "https://user:pass@GitHub.com:443/Owner/Repo.git/",
+      "ok": "github.com/Owner/Repo"
+    },
+    {
+      "input": "ssh://git@github.com/a/b.git",
+      "ok": "github.com/a/b"
+    },
+    {
+      "input": "github.com:a/b",
+      "ok": "github.com/a/b"
+    },
+    {
+      "input": "https://github.com",
+      "error": "refused",
+      "message": "malformed project id origin \"https://github.com\""
+    },
+    {
+      "input": "/local/path",
+      "error": "refused",
+      "message": "malformed project id origin \"/local/path\""
+    },
+    {
+      "input": "./rel",
+      "error": "refused",
+      "message": "malformed project id origin \"./rel\""
+    },
+    {
+      "input": "~/home",
+      "error": "refused",
+      "message": "malformed project id origin \"~/home\""
+    },
+    {
+      "input": "C:\\win",
+      "error": "refused",
+      "message": "malformed project id origin \"C:\\\\win\""
+    },
+    {
+      "input": "not a url",
+      "error": "refused",
+      "message": "malformed project id origin \"not a url\""
+    },
+    {
+      "input": "git@github.com:a/b/c.git",
+      "ok": "github.com/a/b/c"
+    },
+    {
+      "input": "https://host/a/../b",
+      "error": "refused",
+      "message": "malformed project id \"host/a/../b\""
+    },
+    {
+      "input": "https://host/a//b",
+      "error": "refused",
+      "message": "malformed project id \"host/a//b\""
+    }
+  ],
+  "assertProjectID": [
+    {
+      "input": "github.com/a/b",
+      "ok": "github.com/a/b"
+    },
+    {
+      "input": "local/x",
+      "ok": "local/x"
+    },
+    {
+      "input": "",
+      "error": "refused",
+      "message": "malformed project id \"\""
+    },
+    {
+      "input": "a b",
+      "error": "refused",
+      "message": "malformed project id \"a b\""
+    },
+    {
+      "input": "/a/b",
+      "error": "refused",
+      "message": "malformed project id \"/a/b\""
+    },
+    {
+      "input": "a//b",
+      "error": "refused",
+      "message": "malformed project id \"a//b\""
+    },
+    {
+      "input": "a/./b",
+      "error": "refused",
+      "message": "malformed project id \"a/./b\""
+    },
+    {
+      "input": "a/../b",
+      "error": "refused",
+      "message": "malformed project id \"a/../b\""
+    },
+    {
+      "input": "a/b/",
+      "error": "refused",
+      "message": "malformed project id \"a/b/\""
+    }
+  ],
+  "summaryBodies": [
+    {
+      "input": "# Reflections\n[aaaaaaaaaaaa] Fact one <- bbbbbbbbbbbb,cccccccccccc\n[dddddddddddd] Fact two\n\n# Observations\n[bbbbbbbbbbbb] 2026-01-04 10:59 [high] Obs one\n[cccccccccccc] 2026-01-04 11:00 [low] Obs two\nnot an observation line\n[eeeeeeeeeeee] 2026-01-04 11:01 [critical] Obs three  \n",
+      "parsed": {
+        "reflections": [
+          {
+            "id": "aaaaaaaaaaaa",
+            "content": "Fact one",
+            "supports": [
+              "bbbbbbbbbbbb",
+              "cccccccccccc"
+            ]
+          },
+          {
+            "id": "dddddddddddd",
+            "content": "Fact two",
+            "supports": []
+          }
+        ],
+        "observations": [
+          {
+            "id": "bbbbbbbbbbbb",
+            "at": "2026-01-04 10:59",
+            "relevance": "high",
+            "content": "Obs one"
+          },
+          {
+            "id": "cccccccccccc",
+            "at": "2026-01-04 11:00",
+            "relevance": "low",
+            "content": "Obs two"
+          },
+          {
+            "id": "eeeeeeeeeeee",
+            "at": "2026-01-04 11:01",
+            "relevance": "critical",
+            "content": "Obs three"
+          }
+        ]
+      },
+      "rendered": "# Reflections\n[aaaaaaaaaaaa] Fact one <- bbbbbbbbbbbb,cccccccccccc\n[dddddddddddd] Fact two\n\n# Observations\n[bbbbbbbbbbbb] 2026-01-04 10:59 [high] Obs one\n[cccccccccccc] 2026-01-04 11:00 [low] Obs two\n[eeeeeeeeeeee] 2026-01-04 11:01 [critical] Obs three\n"
+    },
+    {
+      "input": "no headings at all\n[aaaaaaaaaaaa] 2026-01-04 10:59 [high] ignored\n",
+      "parsed": {
+        "reflections": [],
+        "observations": []
+      },
+      "rendered": "# Reflections\n\n# Observations\n"
+    },
+    {
+      "input": "# Observations\n[aaaaaaaaaaaa] 2026-01-04 10:59 [medium] before reflections\n# Reflections\n[bbbbbbbbbbbb] after\n",
+      "parsed": {
+        "reflections": [
+          {
+            "id": "bbbbbbbbbbbb",
+            "content": "after",
+            "supports": []
+          }
+        ],
+        "observations": [
+          {
+            "id": "aaaaaaaaaaaa",
+            "at": "2026-01-04 10:59",
+            "relevance": "medium",
+            "content": "before reflections"
+          }
+        ]
+      },
+      "rendered": "# Reflections\n[bbbbbbbbbbbb] after\n\n# Observations\n[aaaaaaaaaaaa] 2026-01-04 10:59 [medium] before reflections\n"
+    },
+    {
+      "input": "",
+      "parsed": {
+        "reflections": [],
+        "observations": []
+      },
+      "rendered": "# Reflections\n\n# Observations\n"
+    }
+  ],
+  "prune": [
+    {
+      "input": {
+        "maxTokens": 10,
+        "targetTokens": 5,
+        "reflections": [
+          {
+            "id": "aaaaaaaaaaaa",
+            "content": "r",
+            "supports": [
+              "000000000002"
+            ]
+          }
+        ],
+        "observations": [
+          {
+            "id": "000000000001",
+            "at": "2026-01-01 00:00",
+            "relevance": "high",
+            "content": "one"
+          },
+          {
+            "id": "000000000002",
+            "at": "2026-01-01 00:01",
+            "relevance": "low",
+            "content": "two covered"
+          },
+          {
+            "id": "000000000003",
+            "at": "2026-01-01 00:02",
+            "relevance": "low",
+            "content": "three"
+          },
+          {
+            "id": "000000000004",
+            "at": "2026-01-01 00:03",
+            "relevance": "critical",
+            "content": "four"
+          }
+        ]
+      },
+      "expected": {
+        "observations": [],
+        "dropped": [
+          "000000000002",
+          "000000000003",
+          "000000000001",
+          "000000000004"
+        ]
+      }
+    },
+    {
+      "input": {
+        "maxTokens": 1000,
+        "targetTokens": 500,
+        "reflections": [],
+        "observations": [
+          {
+            "id": "000000000001",
+            "at": "2026-01-01 00:00",
+            "relevance": "high",
+            "content": "kept"
+          }
+        ]
+      },
+      "expected": {
+        "observations": [
+          {
+            "id": "000000000001",
+            "at": "2026-01-01 00:00",
+            "relevance": "high",
+            "content": "kept"
+          }
+        ],
+        "dropped": []
+      }
+    }
+  ],
+  "prompts": {
+    "input": {
+      "reflections": [
+        {
+          "id": "aaaaaaaaaaaa",
+          "content": "Fact",
+          "supports": [
+            "bbbbbbbbbbbb"
+          ]
+        }
+      ],
+      "observations": [
+        {
+          "id": "bbbbbbbbbbbb",
+          "at": "2026-01-04 10:59",
+          "relevance": "high",
+          "content": "Obs"
+        }
+      ],
+      "delta": "--- e1 user 2026-01-04T10:59:00.000Z\nhello\n"
+    },
+    "observer": "You extract observations from a coding-agent transcript delta. Output only lines of the form:\n[relevance] one-line observation | entryId,entryId\nrelevance is one of low, medium, high, critical. Record decisions, constraints, preferences, completed work, rejected approaches, open items. Skip chatter. Cite the transcript entry ids the observation came from.\n\nExisting reflections:\n[aaaaaaaaaaaa] Fact\n\nRecent observations:\n[bbbbbbbbbbbb] 2026-01-04 10:59 [high] Obs\n\nTranscript delta:\n--- e1 user 2026-01-04T10:59:00.000Z\nhello\n",
+    "reflector": "You distill durable reflections from observations. Output only lines of the form:\none-line durable fact <- obsId,obsId\nA reflection is a stable fact about the user, project, decision or constraint. Cite every observation whose durable meaning it preserves, and only those.\n\nCurrent reflections:\n[aaaaaaaaaaaa] Fact <- bbbbbbbbbbbb\n\nObservations:\n[bbbbbbbbbbbb] 2026-01-04 10:59 [high] Obs"
+  },
+  "estimateTokens": [
+    {
+      "input": "",
+      "expected": 0
+    },
+    {
+      "input": "abcd",
+      "expected": 1
+    },
+    {
+      "input": "abcde",
+      "expected": 2
+    },
+    {
+      "input": "日本語",
+      "expected": 3
+    }
+  ],
+  "utcMinute": [
+    {
+      "input": "2026-09-07T16:36:26.195Z",
+      "expected": "2026-09-07 16:36 UTC"
+    },
+    {
+      "input": "2026-01-01T00:00:00Z",
+      "expected": "2026-01-01 00:00 UTC"
+    }
+  ],
+  "sessionSlug": [
+    {
+      "input": "pi:session/01a0457b",
+      "expected": "pi-session-01a0457b"
+    },
+    {
+      "input": "claude-code:session/ABC-def",
+      "expected": "claude-code-session-abc-def"
+    },
+    {
+      "input": "weird//chars??",
+      "expected": "weird-chars-"
+    }
+  ],
+  "capDelta": {
+    "input": {
+      "maxTokens": 30,
+      "entries": [
+        {
+          "id": "e1",
+          "role": "user",
+          "at": "2026-01-01T00:00:00.000Z",
+          "text": "first entry text that is long enough"
+        },
+        {
+          "id": "e2",
+          "role": "assistant",
+          "at": "2026-01-01T00:00:01.000Z",
+          "text": "second"
+        },
+        {
+          "id": "e3",
+          "role": "user",
+          "at": "2026-01-01T00:00:02.000Z",
+          "text": "third"
+        }
+      ]
+    },
+    "expected": [
+      {
+        "id": "e2",
+        "role": "assistant",
+        "at": "2026-01-01T00:00:01.000Z",
+        "text": "second"
+      },
+      {
+        "id": "e3",
+        "role": "user",
+        "at": "2026-01-01T00:00:02.000Z",
+        "text": "third"
+      }
+    ]
+  }
+}

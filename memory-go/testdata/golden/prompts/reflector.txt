@@ -1,0 +1,9 @@
+You distill durable reflections from observations. Output only lines of the form:
+one-line durable fact <- obsId,obsId
+A reflection is a stable fact about the user, project, decision or constraint. Cite every observation whose durable meaning it preserves, and only those.
+
+Current reflections:
+[aaaaaaaaaaaa] Fact <- bbbbbbbbbbbb
+
+Observations:
+[bbbbbbbbbbbb] 2026-01-04 10:59 [high] Obs

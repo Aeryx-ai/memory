@@ -26,7 +26,7 @@ const OBSERVATION_MAX_CHARS = 240;
 const MAX_OBSERVATIONS_PER_FOLD = 40;
 const GIVE_UP_AFTER_FAILURES = 3;
 const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "memory.mjs");
-const sessionSlug = (s) => s.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+export const sessionSlug = (s) => s.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
 
 export function OBSERVER_PROMPT(reflections, recent, delta) {
   return `You extract observations from a coding-agent transcript delta. Output only lines of the form:

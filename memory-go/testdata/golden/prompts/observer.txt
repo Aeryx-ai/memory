@@ -1,0 +1,13 @@
+You extract observations from a coding-agent transcript delta. Output only lines of the form:
+[relevance] one-line observation | entryId,entryId
+relevance is one of low, medium, high, critical. Record decisions, constraints, preferences, completed work, rejected approaches, open items. Skip chatter. Cite the transcript entry ids the observation came from.
+
+Existing reflections:
+[aaaaaaaaaaaa] Fact
+
+Recent observations:
+[bbbbbbbbbbbb] 2026-01-04 10:59 [high] Obs
+
+Transcript delta:
+--- e1 user 2026-01-04T10:59:00.000Z
+hello

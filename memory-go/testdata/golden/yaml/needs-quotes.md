@@ -1,0 +1,28 @@
+---
+a: "with: colon"
+b: "[bracket]"
+c: "#hash"
+d: "a #b"
+e: "trailing:"
+f: " leading"
+g: "trailing "
+h: "-"
+i: "- dash"
+j: "?"
+k: "? q"
+l: "%p"
+m: ---x
+n: ...x
+o: "@a"
+p: "`t"
+q: "|p"
+r: ">g"
+s: "!b"
+t: "&a"
+u: "*s"
+v: "{b"
+w: "}b"
+x: "]b"
+y: ",c"
+z: "a: b"
+---

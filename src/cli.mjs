@@ -5,6 +5,7 @@ import path from "node:path";
 import { MemoryError, exitCode } from "./errors.mjs";
 import { Bundle } from "./bundle.mjs";
 import { projectIdFor } from "./project-id.mjs";
+import { TYPES } from "./types.mjs";
 import { createConcept, revise, deprecate, restore, renderConcept, validateConcept } from "./concept.mjs";
 import { slugify } from "./slug.mjs";
 import { writeIndex } from "./index-file.mjs";
@@ -136,6 +137,7 @@ const HANDLERS = {
   async remember(ctx, v) {
     const dir = targetDir(ctx, v);
     const type = need(v, "type"), title = need(v, "title");
+    if (!TYPES.includes(type)) throw new MemoryError("refused", `type ${JSON.stringify(type)} not in ${TYPES.join(", ")}`);
     const bodyGiven = v.body !== undefined;
     const body = bodyGiven ? v.body : await ctx.readStdin();
     const at = ctx.now();

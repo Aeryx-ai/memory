@@ -1,0 +1,261 @@
+[
+  {
+    "name": "plain",
+    "data": {
+      "type": "User",
+      "title": "Author name",
+      "status": "stable"
+    },
+    "body": "b\n"
+  },
+  {
+    "name": "needs-quotes",
+    "data": {
+      "a": "with: colon",
+      "b": "[bracket]",
+      "c": "#hash",
+      "d": "a #b",
+      "e": "trailing:",
+      "f": " leading",
+      "g": "trailing ",
+      "h": "-",
+      "i": "- dash",
+      "j": "?",
+      "k": "? q",
+      "l": "%p",
+      "m": "---x",
+      "n": "...x",
+      "o": "@a",
+      "p": "`t",
+      "q": "|p",
+      "r": ">g",
+      "s": "!b",
+      "t": "&a",
+      "u": "*s",
+      "v": "{b",
+      "w": "}b",
+      "x": "]b",
+      "y": ",c",
+      "z": "a: b"
+    },
+    "body": ""
+  },
+  {
+    "name": "typed-looking",
+    "data": {
+      "a": "true",
+      "b": "false",
+      "c": "null",
+      "d": "~",
+      "e": "",
+      "f": "123",
+      "g": "-1",
+      "h": "+1",
+      "i": "0x1f",
+      "j": "0o17",
+      "k": "1.5",
+      "l": ".5",
+      "m": "1.",
+      "n": "1e3",
+      "o": ".inf",
+      "p": ".nan",
+      "q": "True",
+      "r": "NULL",
+      "s": "12a",
+      "t": "2026-01-02T03:04:05.000Z",
+      "u": "0b101"
+    },
+    "body": ""
+  },
+  {
+    "name": "quotes",
+    "data": {
+      "a": "it's",
+      "b": "say \"hi\"",
+      "c": "it's \"both\"",
+      "d": "\"leading double",
+      "e": "'leading single"
+    },
+    "body": ""
+  },
+  {
+    "name": "multiline",
+    "data": {
+      "a": "line1\nline2",
+      "b": "line1\nline2\n",
+      "c": "line1\nline2\n\n",
+      "d": "  lead\nnext",
+      "e": "a\n\n\nb",
+      "f": "x \ny",
+      "g": "x\n y",
+      "h": "a\"b\nc",
+      "i": "one two three four five six seven eight nine ten\nsecond line here",
+      "j": "one two three four five six seven eight nine ten \nsecond",
+      "k": "one two three four five six seven eight nine ten\n second",
+      "l": "one two three four five six seven eight nine ten\n\nthird",
+      "m": "trailing space then newline \n"
+    },
+    "body": ""
+  },
+  {
+    "name": "control",
+    "data": {
+      "a": "tab\there",
+      "b": "bell\u0007x",
+      "c": "nul\u0000x",
+      "d": "esc\u001bx",
+      "e": "delx",
+      "f": "nbsp x",
+      "g": "ls x"
+    },
+    "body": ""
+  },
+  {
+    "name": "unicode",
+    "data": {
+      "title": "Ünïcödé référence 日本語 🎉",
+      "description": "émoji 🎉 and ü"
+    },
+    "body": "日本\n"
+  },
+  {
+    "name": "keys",
+    "data": {
+      "123": 4,
+      "plain_key": 1,
+      "key with space": 2,
+      "key: colon": 3,
+      "true": 5,
+      "---": 6,
+      "null": 7,
+      "": 8,
+      "it's": 9,
+      "a\nb": 10
+    },
+    "body": ""
+  },
+  {
+    "name": "nested",
+    "data": {
+      "type": "Feedback",
+      "title": "T",
+      "description": "D",
+      "tags": [
+        "a",
+        "b c",
+        "[d]"
+      ],
+      "status": "stable",
+      "generated": {
+        "by": "human:guy",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "verified": [
+        {
+          "by": "pi/kimi-k3",
+          "at": "2026-01-02T03:04:05.000Z"
+        }
+      ],
+      "sources": [
+        {
+          "resource": "pi:session/x"
+        },
+        {
+          "resource": "a1b2,c3d4",
+          "id": "0000000000ab"
+        },
+        {
+          "resource": "/tmp/t.jsonl",
+          "title": "transcript"
+        },
+        {
+          "resource": "file:///x.md",
+          "last_modified": "2026-01-01T00:00:00.000Z"
+        }
+      ],
+      "stale_after": "2027-01-01T00:00:00Z"
+    },
+    "body": "body without trailing newline"
+  },
+  {
+    "name": "scalars",
+    "data": {
+      "n": 1,
+      "neg": -5,
+      "f": 1.5,
+      "big": 1e+21,
+      "small": 0.000001,
+      "tiny": 1e-7,
+      "b": true,
+      "bf": false,
+      "z": null,
+      "fl": 100
+    },
+    "body": ""
+  },
+  {
+    "name": "collections",
+    "data": {
+      "empty_seq": [],
+      "empty_map": {},
+      "seq_of_seq": [
+        [
+          1,
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "seq_of_maps": [
+        {
+          "a": 1,
+          "b": [
+            1,
+            2
+          ]
+        },
+        {
+          "c": {
+            "d": "e"
+          }
+        }
+      ],
+      "map_of_maps": {
+        "x": {
+          "y": {
+            "z": "deep"
+          }
+        }
+      },
+      "seq_with_null": [
+        null,
+        "a"
+      ],
+      "all_null": {
+        "a": null,
+        "b": null
+      }
+    },
+    "body": ""
+  },
+  {
+    "name": "empty-map",
+    "data": {},
+    "body": "just body\n"
+  },
+  {
+    "name": "body-forms",
+    "data": {
+      "k": "v"
+    },
+    "body": ""
+  },
+  {
+    "name": "body-no-newline",
+    "data": {
+      "k": "v"
+    },
+    "body": "no newline at end"
+  }
+]
