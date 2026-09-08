@@ -28,7 +28,7 @@ type fakeSummarizer struct {
 func (f *fakeSummarizer) Summarize(prompt string) (string, error) {
 	f.n++
 	if strings.Contains(prompt, "You distill") {
-		id := hexID.FindString(prompt)
+		id := bareHexID.FindString(prompt)
 		return "Keep pnpm <- " + id + "\n", nil
 	}
 	return f.out, f.err

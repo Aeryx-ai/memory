@@ -61,22 +61,36 @@ function projectRepo(base, id) {
 // one normalized form). Text outputs that quote several files (a context
 // render) are rewritten through the union so they agree with the files.
 const hexOrDash = (ch) => ch !== undefined && /[a-f0-9-]/.test(ch);
+// yaml quotes an all-digit id (`id: "123456789012"`) so it stays a string;
+// the normalized form is never all digits, so those quotes are dropped too,
+// or a random all-digit id would make the tree differ from a run without one.
+// A 12-hex id can also look typed as yaml's core-schema exponential float
+// (digits, a single lowercase e, digits, e.g. "6146190e9187") since e is a
+// valid hex digit; every other core-schema tag (null, bool, octal, an
+// explicit 0x hex literal, inf/nan, a dotted float) needs a letter or '.'
+// outside [a-f0-9] and so can never occur in a hex id.
+const looksTypedHexId = (id) => /^[0-9]{12}$/.test(id) || /^[0-9]+e[0-9]+$/.test(id);
+function rewriteIds(text, f) {
+  return text.replace(/"?([a-f0-9]{12})"?/g, (m, id, offset) => {
+    const start = offset + (m[0] === '"' ? 1 : 0), end = start + 12;
+    if (hexOrDash(text[start - 1]) || hexOrDash(text[end])) return m;
+    const norm = f(id);
+    if (m.length === 14 && looksTypedHexId(id)) return norm;
+    return m.replace(id, norm);
+  });
+}
 export function normalizeIds(text, union) {
   const seen = new Map();
-  return text.replace(/[a-f0-9]{12}/g, (m, offset) => {
-    if (hexOrDash(text[offset - 1]) || hexOrDash(text[offset + 12])) return m;
+  return rewriteIds(text, (id) => {
     // "a" plus eleven digits: still twelve hex characters, never an integer
     // to the YAML core schema, so a normalized id in a sources[].id round trips.
-    if (!seen.has(m)) seen.set(m, "a" + String(seen.size + 1).padStart(11, "0"));
-    if (union && !union.has(m)) union.set(m, seen.get(m));
-    return seen.get(m);
+    if (!seen.has(id)) seen.set(id, "a" + String(seen.size + 1).padStart(11, "0"));
+    if (union && !union.has(id)) union.set(id, seen.get(id));
+    return seen.get(id);
   });
 }
 export function applyIds(text, union) {
-  return text.replace(/[a-f0-9]{12}/g, (m, offset) => {
-    if (hexOrDash(text[offset - 1]) || hexOrDash(text[offset + 12])) return m;
-    return union.get(m) ?? m;
-  });
+  return rewriteIds(text, (id) => union.get(id) ?? id);
 }
 function copyTree(from, to, base, union) {
   const skip = new Set([".git", ".locks", ".state"]);

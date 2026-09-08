@@ -61,7 +61,19 @@ type opResult struct {
 	Stdout string `json:"stdout"`
 }
 
-var hexID = regexp.MustCompile(`[a-f0-9]{12}`)
+var (
+	hexID     = regexp.MustCompile(`"?[a-f0-9]{12}"?`)
+	bareHexID = regexp.MustCompile(`[a-f0-9]{12}`)
+	allDigits = regexp.MustCompile(`^[0-9]{12}$`)
+	// looksExponent is yaml's core-schema exponential-float pattern
+	// (`[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)[eE][-+]?[0-9]+`), restricted to the
+	// characters a 12-hex id can ever contain: no sign, no '.', lowercase e
+	// only. A hex id can look typed only as an all-digit integer or this
+	// exponential form; every other core-schema tag (null, bool, octal, an
+	// explicit 0x hex literal, inf/nan, a dotted float) needs a letter or '.'
+	// outside [0-9a-f] and so can never occur in one.
+	looksExponent = regexp.MustCompile(`^[0-9]+e[0-9]+$`)
+)
 
 func hexOrDash(b byte) bool { return b == '-' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') }
 
@@ -94,21 +106,54 @@ func applyIDs(text string, union map[string]string) string {
 	})
 }
 
+// rewriteIDs applies f to every 12-hex id, mirroring gen.mjs: a run touching
+// another hex digit or a dash is left alone, and the quotes yaml puts around
+// an all-digit id are dropped because the normalized form never needs them.
 func rewriteIDs(text string, f func(string) string) string {
 	var b strings.Builder
 	last := 0
 	for _, m := range hexID.FindAllStringIndex(text, -1) {
 		b.WriteString(text[last:m[0]])
-		id := text[m[0]:m[1]]
-		if (m[0] > 0 && hexOrDash(text[m[0]-1])) || (m[1] < len(text) && hexOrDash(text[m[1]])) {
-			b.WriteString(id)
-		} else {
+		match := text[m[0]:m[1]]
+		start := m[0]
+		if match[0] == '"' {
+			start++
+		}
+		end := start + 12
+		id := text[start:end]
+		switch {
+		case (start > 0 && hexOrDash(text[start-1])) || (end < len(text) && hexOrDash(text[end])):
+			b.WriteString(match)
+		case len(match) == 14 && (allDigits.MatchString(id) || looksExponent.MatchString(id)):
 			b.WriteString(f(id))
+		default:
+			b.WriteString(strings.Replace(match, id, f(id), 1))
 		}
 		last = m[1]
 	}
 	b.WriteString(text[last:])
 	return b.String()
+}
+
+func TestNormalizeIDsDropsQuotesAroundDigitIDs(t *testing.T) {
+	in := "id: \"123456789012\"\nid: abcdef012345\n[123456789012] x\nresource: 2a55d202-0256-4c6a-acb8-d2c40a35847f\n"
+	want := "id: a00000000001\nid: a00000000002\n[a00000000001] x\nresource: 2a55d202-0256-4c6a-acb8-d2c40a35847f\n"
+	if got := normalizeIDs(in, nil); got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+}
+
+// A 12-hex id can also look typed as yaml's core-schema exponential float
+// (digits, one lowercase e, digits: "e" is itself a valid hex digit), which
+// hit in practice as 6146190e9187 (see the round-1 fix report). Node's own
+// yaml library confirms the quoting: renderDocument({sources:[{id:
+// "6146190e9187"}]}, ...) emits `id: "6146190e9187"`.
+func TestNormalizeIDsDropsQuotesAroundExponentIDs(t *testing.T) {
+	in := "id: \"6146190e9187\"\n[6146190e9187] x\n"
+	want := "id: a00000000001\n[a00000000001] x\n"
+	if got := normalizeIDs(in, nil); got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
 }
 
 type replay struct {
