@@ -49,10 +49,11 @@ func Slice16(s string, end int) string {
 	return s
 }
 
-// Lower is String.prototype.toLowerCase: Go's ToLower plus the final sigma
-// rule, which Go's ToLower does not apply.
+// Lower is String.prototype.toLowerCase: Go's ToLower plus the two
+// SpecialCasing rules JavaScript applies that Go's ToLower does not: the
+// final sigma, and U+0130 lowering to "i" plus a combining dot above.
 func Lower(s string) string {
-	l := strings.ToLower(s)
+	l := strings.ToLower(strings.ReplaceAll(s, "İ", "i̇"))
 	if !strings.ContainsRune(l, 'σ') {
 		return l
 	}
