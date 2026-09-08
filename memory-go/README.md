@@ -8,7 +8,11 @@ import memory "github.com/aeryx-ai/memory/memory-go"
 b := memory.New(memory.ResolveRoot("", os.Getenv))
 dir, _ := memory.TargetDir(b, cwd, false)
 res, err := memory.Remember(b, dir, "rudy/0.1", time.Now(), memory.RememberInput{Type: "Feedback", Title: "Use pnpm", Body: &body})
-go res.Job.Run(b) // index, commit, push; never on the hot path
+go func() { // index, commit, push; never on the hot path
+	if _, err := res.Job.Run(b); err != nil {
+		log.Printf("memory write completion: %v", err)
+	}
+}()
 text, _ := memory.RenderContext(b, memory.ContextOptions{ProjectID: dir.ProjectID, Session: sessionID})
 ```
 
@@ -25,6 +29,8 @@ Known deviations, none of which cause the two writers to rewrite each other's fi
 - JavaScript objects list integer-like keys (`"123"`) first regardless of insertion order; Go's `yamlfm.Map` keeps file order. Only an unknown frontmatter key that looks like an integer is affected.
 - `go.yaml.in/yaml/v3` refuses a raw DEL (U+007F) anywhere in frontmatter and treats a raw U+2028 as a line break, where `yaml@2.9.0` accepts both inside a double-quoted scalar. Go renders such values identically but cannot parse them back; `Check` reports the file. No concept the bundle holds carries either character.
 - `.state/` checkpoints share keys, not bytes.
+- A fold observation cut at the 240-unit cap that lands inside a UTF-16 surrogate pair: Node keeps the lone leading surrogate, Go's `js.Slice16` drops the whole pair (a lone surrogate cannot be encoded in UTF-8).
+- `RenderContext` takes a `ProjectID` the caller must resolve; the CLI's `context` command resolves one from the working directory (`projectIdFor(cwd)`) before calling in.
 
 ## Not ported
 

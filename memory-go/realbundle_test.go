@@ -60,7 +60,7 @@ func TestRealBundle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != string(want) {
-		t.Errorf("context differs from the Node CLI for %s\n--- go ---\n%s\n--- node ---\n%s", id, firstDiff(got, string(want)), "")
+		t.Errorf("context differs from the Node CLI for %s: %s", id, firstDiff(got, string(want)))
 	}
 }
 

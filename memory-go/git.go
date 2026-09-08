@@ -112,9 +112,9 @@ func SyncGit(root string, pull, push bool) (SyncResult, error) {
 	if pull {
 		_, ok, _ := Git(root, []string{"pull", "--rebase", "-q", "origin", branch}, true, 60*time.Second)
 		if !ok {
-			_, merge := os.Stat(filepath.Join(root, ".git", "rebase-merge"))
-			_, apply := os.Stat(filepath.Join(root, ".git", "rebase-apply"))
-			if merge == nil || apply == nil {
+			_, mergeErr := os.Stat(filepath.Join(root, ".git", "rebase-merge"))
+			_, applyErr := os.Stat(filepath.Join(root, ".git", "rebase-apply"))
+			if mergeErr == nil || applyErr == nil {
 				Git(root, []string{"rebase", "--abort"}, true, 0)
 				r.Conflict = true
 				return r, nil

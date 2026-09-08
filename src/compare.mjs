@@ -8,6 +8,3 @@ function units(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
 export function compareFold(a, b) {
   return units(a.toLowerCase(), b.toLowerCase()) || units(a, b);
 }
-export function sortFold(list, key = (x) => x) {
-  return list.sort((a, b) => compareFold(key(a), key(b)));
-}
