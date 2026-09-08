@@ -16,6 +16,10 @@ import { parseSummaryBody, renderSummaryBody, pruneObservations, estimateTokens 
 import { OBSERVER_PROMPT, REFLECTOR_PROMPT, utcMinute, capDelta, sessionSlug } from "../../src/fold.mjs";
 import { readDelta, serializeEntries } from "../../src/transcript.mjs";
 import { compareFold } from "../../src/compare.mjs";
+import { createConcept } from "../../src/concept.mjs";
+import { appendLog } from "../../src/log-file.mjs";
+import { runJobInline } from "../../src/jobs.mjs";
+import { Bundle } from "../../src/bundle.mjs";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..", "..");
@@ -92,13 +96,34 @@ export function normalizeIds(text, union) {
 export function applyIds(text, union) {
   return rewriteIds(text, (id) => union.get(id) ?? id);
 }
+// listFiles walks from recursively and returns every file's bundle-relative
+// (posix, "/"-joined) path paired with its absolute source path, skipping
+// .git/.locks/.state and *.tmp. Directories are not returned; order is
+// whatever readdirSync gives, which copyTree sorts before using.
+function listFiles(from, relBase, skip) {
+  const out = [];
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    if (skip.has(entry.name) || entry.name.endsWith(".tmp")) continue;
+    const abs = path.join(from, entry.name);
+    const rel = relBase ? `${relBase}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) { out.push(...listFiles(abs, rel, skip)); continue; }
+    out.push({ abs, rel });
+  }
+  return out;
+}
+// Every file's bundle-relative path is collected first, sorted by
+// compareFold over the whole tree, then normalized in that order: an id
+// shared across files gets its union number from the first file that holds
+// it in that single global order, the same order Go's compareTree walks the
+// golden tree in, so both sides fill the union identically regardless of
+// how many files or subdirectories sit at each level.
 function copyTree(from, to, base, union) {
   const skip = new Set([".git", ".locks", ".state"]);
-  for (const entry of fs.readdirSync(from, { withFileTypes: true }).sort((a, b) => compareFold(a.name, b.name))) {
-    if (skip.has(entry.name) || entry.name.endsWith(".tmp")) continue;
-    const src = path.join(from, entry.name), dst = path.join(to, entry.name);
-    if (entry.isDirectory()) { fs.mkdirSync(dst, { recursive: true }); copyTree(src, dst, base, union); continue; }
-    fs.writeFileSync(dst, normalizeIds(fs.readFileSync(src, "utf8").replaceAll(base, "<TMP>"), union));
+  const files = listFiles(from, "", skip).sort((a, b) => compareFold(a.rel, b.rel));
+  for (const { abs, rel } of files) {
+    const dst = path.join(to, ...rel.split("/"));
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.writeFileSync(dst, normalizeIds(fs.readFileSync(abs, "utf8").replaceAll(base, "<TMP>"), union));
   }
 }
 
@@ -111,6 +136,19 @@ async function runOps() {
   const results = [], texts = [];
   for (const [i, op] of ops.entries()) {
     clock = Date.parse(op.at);
+    if (op.cmd === "concept") {
+      // Exercises createConcept/writeConcept/appendLog/runJobInline directly:
+      // verified[] and stale_after have no CLI flags, only a library path.
+      const b = new Bundle(root);
+      const dir = b.dir(op.project);
+      const concept = createConcept({ type: op.type, title: op.title, description: op.description, actor: op.actor, at: op.at, verified: op.verified, stale_after: op.stale_after, body: op.body });
+      const rel = b.conceptRel(dir, op.type, slugify(op.title));
+      b.writeConcept(rel, concept);
+      appendLog(b, dir, { kind: "Creation", concept, rel, actor: op.actor, at: op.at });
+      runJobInline(b, dir.rel, `memory: concept ${op.title}`);
+      results.push({ i, cmd: "concept", code: 0, stdout: JSON.stringify({ rel }) + "\n" });
+      continue;
+    }
     const argv = ["--dir", root];
     if (op.actor) argv.push("--actor", op.actor);
     if (op.project) argv.push("--cwd", projectRepo(base, op.project));

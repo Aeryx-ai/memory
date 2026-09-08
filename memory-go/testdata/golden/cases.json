@@ -55,6 +55,10 @@
       "input": "",
       "error": "refused",
       "message": "title \"\" yields an empty slug"
+    },
+    {
+      "input": "<x>",
+      "ok": "x"
     }
   ],
   "actor": [
@@ -299,6 +303,10 @@
       "input": "https://host/a//b",
       "error": "refused",
       "message": "malformed project id \"host/a//b\""
+    },
+    {
+      "input": "https://host/<a>/b",
+      "ok": "host/<a>/b"
     }
   ],
   "assertProjectID": [
