@@ -6,6 +6,7 @@ import { MemoryError } from "./errors.mjs";
 import { TYPE_DIRS, dirForType } from "./types.mjs";
 import { parseConcept, renderConcept } from "./concept.mjs";
 import { assertProjectId } from "./project-id.mjs";
+import { compareFold } from "./compare.mjs";
 
 const ROOT_INDEX = `---\nokf_version: "0.2"\n---\n`;
 export class Bundle {
@@ -61,7 +62,7 @@ export class Bundle {
       if (d.isDirectory()) walk(path.join(projects, d.name), d.name);
     }
     // root's rel is "" so it sorts first alongside the rest; filesystem order is not guaranteed.
-    return out.sort((a, b) => a.rel.localeCompare(b.rel));
+    return out.sort((a, b) => compareFold(a.rel, b.rel));
   }
   conceptRel(dir, type, slug) { return path.posix.join(dir.rel, dirForType(type), `${slug}.md`); }
   writeAtomic(rel, text) {
@@ -89,7 +90,7 @@ export class Bundle {
         try { out.push({ rel, concept: parseConcept(this.read(rel)) }); } catch { /* check reports it */ }
       }
     }
-    return out.sort((a, b) => a.rel.localeCompare(b.rel));
+    return out.sort((a, b) => compareFold(a.rel, b.rel));
   }
   findConcept(dir, key) {
     const entries = this.listConcepts(dir);

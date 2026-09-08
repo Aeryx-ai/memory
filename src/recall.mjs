@@ -1,3 +1,4 @@
+import { compareFold } from "./compare.mjs";
 export function recall(bundle, { projectId, type, query = "", includeDeprecated = false }) {
   const dirs = [bundle.dir(null)]; if (projectId) dirs.push(bundle.dir(projectId));
   const terms = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 2);
@@ -12,6 +13,6 @@ export function recall(bundle, { projectId, type, query = "", includeDeprecated 
     if (terms.length && score === 0) continue;
     out.push({ rel, score, title: c.title, description: c.description, type: c.type, status: c.status, at: c.generated.at });
   }
-  return out.sort((a, b) => b.score - a.score || b.at.localeCompare(a.at)).map(({ at, ...h }) => h);
+  return out.sort((a, b) => b.score - a.score || compareFold(b.at, a.at)).map(({ at, ...h }) => h);
 }
 function count(text, term) { return text.toLowerCase().split(term).length - 1; }

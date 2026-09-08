@@ -1,5 +1,6 @@
 import path from "node:path";
 import { TYPES } from "./types.mjs";
+import { compareFold } from "./compare.mjs";
 export function renderIndex(entries, { isRoot }) {
   const live = entries.filter((e) => e.concept.status !== "deprecated");
   const sections = [];
@@ -7,8 +8,8 @@ export function renderIndex(entries, { isRoot }) {
     let items = live.filter((e) => e.concept.type === type);
     if (!items.length) continue;
     items = type === "Session Summary"
-      ? items.sort((a, b) => b.concept.generated.at.localeCompare(a.concept.generated.at))
-      : items.sort((a, b) => a.concept.title.localeCompare(b.concept.title));
+      ? items.sort((a, b) => compareFold(b.concept.generated.at, a.concept.generated.at))
+      : items.sort((a, b) => compareFold(a.concept.title, b.concept.title));
     const dirRel = entries.dirRel ?? "";
     const lines = items.map((e) => `* [${e.concept.title}](${relLink(dirRel, e.rel)}) - ${e.concept.description}`);
     sections.push(`# ${type}\n\n${lines.join("\n")}\n`);
