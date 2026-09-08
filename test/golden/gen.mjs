@@ -56,9 +56,13 @@ function projectRepo(base, id) {
 // 12-hex ids are random at fold time; rewrite them per file in order of first
 // appearance so the tree is stable across regenerations. The Go replay applies
 // the same rewrite to its own output before diffing.
+// A 12-hex run that touches another hex digit or a dash is part of something
+// longer (a uuid segment, a hash) and is left alone.
+const hexOrDash = (ch) => ch !== undefined && /[a-f0-9-]/.test(ch);
 export function normalizeIds(text) {
   const seen = new Map();
-  return text.replace(/\b[a-f0-9]{12}\b/g, (m) => {
+  return text.replace(/[a-f0-9]{12}/g, (m, offset) => {
+    if (hexOrDash(text[offset - 1]) || hexOrDash(text[offset + 12])) return m;
     if (!seen.has(m)) seen.set(m, String(seen.size + 1).padStart(12, "0"));
     return seen.get(m);
   });
@@ -134,17 +138,21 @@ async function runOps() {
   fs.rmSync(base, { recursive: true, force: true });
 }
 
+// Each case is written with Node's own parse of the rendered text as
+// `parsed`, so the Go parser is measured against what yaml@2.9.0 reads back,
+// not against the JSON input: the library drops a trailing space on the last
+// line of a literal block scalar, and Go must do the same.
 function yamlCases() {
   const cases = JSON.parse(fs.readFileSync(path.join(HERE, "yaml-cases.json"), "utf8"));
-  writeOut("yaml/cases.json", JSON.stringify(cases, null, 2) + "\n");
+  const out = [];
   for (const c of cases) {
     const text = renderDocument(c.data, c.body);
     writeOut(`yaml/${c.name}.md`, text);
     const back = parseDocument(text);
-    if (JSON.stringify(back.data) !== JSON.stringify(c.data) || back.body !== (c.body === "" || c.body.endsWith("\n") ? c.body : c.body + "\n")) {
-      console.error(`yaml case ${c.name} does not round trip in Node; the Go test expects it to`);
-    }
+    if (JSON.stringify(back.data) !== JSON.stringify(c.data)) console.error(`yaml case ${c.name}: Node's parse differs from the input; parsed is the golden`);
+    out.push({ ...c, parsed: { data: back.data, body: back.body } });
   }
+  writeOut("yaml/cases.json", JSON.stringify(out, null, 2) + "\n");
 }
 
 function valueCases() {
