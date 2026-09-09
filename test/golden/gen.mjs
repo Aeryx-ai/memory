@@ -131,7 +131,7 @@ async function runOps() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "golden-"));
   const root = path.join(base, "memory");
   fs.mkdirSync(path.join(base, "transcripts"));
-  for (const f of ["pi.jsonl", "claude.jsonl"]) fs.copyFileSync(path.join(FIXTURES, f), path.join(base, "transcripts", f));
+  for (const f of ["pi.jsonl", "claude.jsonl", "rudy.jsonl"]) fs.copyFileSync(path.join(FIXTURES, f), path.join(base, "transcripts", f));
   const ops = JSON.parse(fs.readFileSync(path.join(HERE, "ops.json"), "utf8"));
   const results = [], texts = [];
   for (const [i, op] of ops.entries()) {
@@ -238,7 +238,7 @@ function valueCases() {
   writeOut("cases.json", JSON.stringify(out, null, 2) + "\n");
   writeOut("prompts/observer.txt", out.prompts.observer);
   writeOut("prompts/reflector.txt", out.prompts.reflector);
-  for (const [name, format] of [["pi", "pi"], ["claude", "claude"]]) {
+  for (const [name, format] of [["pi", "pi"], ["claude", "claude"], ["rudy", "rudy"]]) {
     const p = path.join(FIXTURES, `${name}.jsonl`);
     writeOut(`transcript/${name}.txt`, serializeEntries(readDelta(p, format, 0).entries));
   }

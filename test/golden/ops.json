@@ -36,6 +36,7 @@
   {"at": "2026-01-05T11:00:00.000Z", "cmd": "fold", "project": "github.com/golden/alpha", "actor": "claude-code/claude", "session": "claude-code:session/leak", "transcript": "claude.jsonl", "format": "claude", "summarizer": "leaky", "settings": {"observeAfterTokens": 1}},
   {"at": "2026-01-05T12:00:00.000Z", "cmd": "fold", "project": "github.com/golden/alpha", "actor": "claude-code/claude", "session": "claude-code:session/nosumm", "transcript": "claude.jsonl", "format": "claude", "settings": {"observeAfterTokens": 1}, "expectStatus": "skipped"},
   {"at": "2026-01-05T12:30:00.000Z", "cmd": "fold", "project": "github.com/golden/alpha", "actor": "claude-code/claude", "session": "claude-code:session/failing", "transcript": "claude.jsonl", "format": "claude", "summarizer": "failing", "settings": {"observeAfterTokens": 1}},
+  {"at": "2026-01-05T12:40:00.000Z", "cmd": "fold", "project": "github.com/golden/alpha", "actor": "rudy/cline-pass-kimi-k3", "session": "rudy:session/01K4N0000000000000000000A0", "transcript": "rudy.jsonl", "format": "rudy", "summarizer": "observer", "settings": {"observeAfterTokens": 1}},
   {"at": "2026-01-05T12:45:00.000Z", "cmd": "remember", "project": "github.com/golden/alpha", "actor": "human:guy", "type": "Reference", "title": "After the failed fold", "description": "a write whose completion regenerates the index the failed fold left stale", "body": ""},
   {"at": "2026-01-05T13:00:00.000Z", "cmd": "check"},
   {"at": "2026-01-05T13:01:00.000Z", "cmd": "context", "project": "github.com/golden/alpha", "out": "alpha-default"},
