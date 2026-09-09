@@ -29,11 +29,17 @@ const FIXTURES = path.join(REPO, "test", "fixtures", "transcripts");
 // the dup and leaky summarizer commands below so a delta read from that
 // fixture always resolves the id they claim an observation came from.
 const CLAUDE_ID = "2a55d202-0256-4c6a-acb8-d2c40a35847f";
+// The id of the A2 line (the first user_message) in
+// test/fixtures/transcripts/rudy.jsonl. Cited by the rudy summarizer command
+// below so a delta read from that fixture always resolves the id it claims
+// an observation came from.
+const RUDY_ID = "01K4N0000000000000000000A2";
 export const SUMMARIZERS = {
   observer: `sh -c 'grep -q "You distill" - && echo "Keep pnpm <- $(cat "$MEMORY_PROMPT_FILE" | grep -o "\\[[a-f0-9]\\{12\\}\\]" | head -1 | tr -d "[]")" || echo "[high] User requires pnpm, never npm | a1b2c3d4"'`,
   dup: `sh -c 'echo "[high] First observation | ${CLAUDE_ID}"; echo "[medium] Second observation | ${CLAUDE_ID}"'`,
   leaky: `sh -c 'echo "[high] Key is AKIAIOSFODNN7EXAMPLE | ${CLAUDE_ID}"'`,
   failing: `sh -c 'exit 7'`,
+  rudy: `sh -c 'echo "[high] User requires pnpm, never npm | ${RUDY_ID}"'`,
 };
 
 // A settable clock: every `new Date()` and `Date.now()` in src/ reads it, so

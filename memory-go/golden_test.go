@@ -15,14 +15,16 @@ import (
 )
 
 // The summarizer commands from test/golden/gen.mjs, keyed by name. dup and
-// leaky cite the claude fixture's first entry uuid directly: gen.mjs derives
-// it the same way (see CLAUDE_ID there), and it never changes since the
-// fixture is checked in.
+// leaky cite the claude fixture's first entry uuid directly, and rudy cites
+// the rudy fixture's first user_message id (the A2 line): gen.mjs derives
+// each the same way (see CLAUDE_ID and RUDY_ID there), and neither changes
+// since the fixtures are checked in.
 var summarizers = map[string]string{
 	"observer": `sh -c 'grep -q "You distill" - && echo "Keep pnpm <- $(cat "$MEMORY_PROMPT_FILE" | grep -o "\[[a-f0-9]\{12\}\]" | head -1 | tr -d "[]")" || echo "[high] User requires pnpm, never npm | a1b2c3d4"'`,
 	"dup":      `sh -c 'echo "[high] First observation | 2a55d202-0256-4c6a-acb8-d2c40a35847f"; echo "[medium] Second observation | 2a55d202-0256-4c6a-acb8-d2c40a35847f"'`,
 	"leaky":    `sh -c 'echo "[high] Key is AKIAIOSFODNN7EXAMPLE | 2a55d202-0256-4c6a-acb8-d2c40a35847f"'`,
 	"failing":  `sh -c 'exit 7'`,
+	"rudy":     `sh -c 'echo "[high] User requires pnpm, never npm | 01K4N0000000000000000000A2"'`,
 }
 
 type op struct {
