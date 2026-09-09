@@ -18,7 +18,8 @@ type TranscriptEntry struct {
 }
 
 // DetectFormat reads the first 200 bytes: a pi session file opens with a
-// {"type":"session"} row, anything else is a Claude Code transcript.
+// {"type":"session"} row, a rudy session log opens with a session_opened or
+// fork_point kind, anything else is a Claude Code transcript.
 func DetectFormat(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -27,8 +28,12 @@ func DetectFormat(path string) (string, error) {
 	defer f.Close()
 	buf := make([]byte, 200)
 	n, _ := f.Read(buf)
-	if strings.Contains(string(buf[:n]), `"type":"session"`) {
+	head := string(buf[:n])
+	if strings.Contains(head, `"type":"session"`) {
 		return "pi", nil
+	}
+	if strings.Contains(head, `"kind":"session_opened"`) || strings.Contains(head, `"kind":"fork_point"`) {
+		return "rudy", nil
 	}
 	return "claude", nil
 }
@@ -38,6 +43,7 @@ type blockNames struct{ call, args, result string }
 var (
 	piNames     = blockNames{"toolCall", "arguments", "toolResultNever"}
 	claudeNames = blockNames{"tool_use", "input", "tool_result"}
+	rudyNames   = blockNames{"tool_use", "input", "tool_result_never"}
 )
 
 func clip(s string) string {
@@ -124,6 +130,30 @@ func fromPi(line []byte) (TranscriptEntry, bool) {
 	return TranscriptEntry{ID: row.ID, Role: row.Message.Role, At: row.Timestamp, Text: text}, true
 }
 
+type rudyRow struct {
+	Kind    string          `json:"kind"`
+	ID      string          `json:"id"`
+	At      string          `json:"at"`
+	Content json.RawMessage `json:"content"`
+}
+
+func fromRudy(line []byte) (TranscriptEntry, bool) {
+	var row rudyRow
+	if json.Unmarshal(line, &row) != nil {
+		return TranscriptEntry{}, false
+	}
+	switch row.Kind {
+	case "user_message":
+		return TranscriptEntry{ID: row.ID, Role: "user", At: row.At, Text: blocksToText(row.Content, rudyNames)}, true
+	case "assistant_message":
+		return TranscriptEntry{ID: row.ID, Role: "assistant", At: row.At, Text: blocksToText(row.Content, rudyNames)}, true
+	case "tool_result":
+		return TranscriptEntry{ID: row.ID, Role: "toolResult", At: row.At, Text: "result: " + clip(blocksToText(row.Content, rudyNames))}, true
+	default:
+		return TranscriptEntry{}, false
+	}
+}
+
 func fromClaude(line []byte) (TranscriptEntry, bool) {
 	var row claudeRow
 	if json.Unmarshal(line, &row) != nil || (row.Type != "user" && row.Type != "assistant") {
@@ -185,9 +215,12 @@ func ReadDelta(path, format string, fromBytes int64) ([]TranscriptEntry, int64, 
 		}
 		var e TranscriptEntry
 		var ok bool
-		if format == "pi" {
+		switch format {
+		case "pi":
 			e, ok = fromPi(line)
-		} else {
+		case "rudy":
+			e, ok = fromRudy(line)
+		default:
 			e, ok = fromClaude(line)
 		}
 		if ok {

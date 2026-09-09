@@ -201,7 +201,7 @@ func newReplay(t *testing.T, stop ...string) *replay {
 	t.Helper()
 	base := t.TempDir()
 	os.MkdirAll(filepath.Join(base, "transcripts"), 0o755)
-	for _, f := range []string{"pi.jsonl", "claude.jsonl"} {
+	for _, f := range []string{"pi.jsonl", "claude.jsonl", "rudy.jsonl"} {
 		raw, err := os.ReadFile(filepath.Join("..", "test", "fixtures", "transcripts", f))
 		if err != nil {
 			t.Fatal(err)

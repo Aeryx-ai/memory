@@ -16,7 +16,7 @@ go func() { // index, commit, push; never on the hot path
 text, _ := memory.RenderContext(b, memory.ContextOptions{ProjectID: dir.ProjectID, Session: sessionID})
 ```
 
-Fold takes a `Summarizer`; `ExecSummarizer(cmd)` runs a shell command the way the CLI does, and a harness supplies its own from its model client.
+Fold takes a `Summarizer`; `ExecSummarizer(cmd)` runs a shell command the way the CLI does, and a harness supplies its own from its model client. rudy's own transcript format calls `RunFoldJob` with `FoldOptions{Format: "rudy", ...}` over its `entries.jsonl` session log rather than leaving `Format` empty for autodetection.
 
 ## Parity
 

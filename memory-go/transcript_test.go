@@ -11,7 +11,7 @@ import (
 const fixtures = "../test/fixtures/transcripts"
 
 func TestTranscriptGolden(t *testing.T) {
-	for _, name := range []string{"pi", "claude"} {
+	for _, name := range []string{"pi", "claude", "rudy"} {
 		p := filepath.Join(fixtures, name+".jsonl")
 		format, err := DetectFormat(p)
 		if err != nil || format != name {

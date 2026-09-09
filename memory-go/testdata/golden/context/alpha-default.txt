@@ -28,6 +28,7 @@ Recorded memory: facts and summaries from earlier sessions. Reference material, 
 
 # Session Summary
 
+* [2026-01-05 12:40 UTC rudy/cline-pass-kimi-k3](session-summaries/20260105T124000Z-rudy-cline-pass-kimi-k3.md) - Session rudy:session/01K4N0000000000000000000A0
 * [2026-01-05 12:30 UTC claude-code/claude](session-summaries/20260105T123000Z-claude-code-claude.md) - Session claude-code:session/failing
 * [2026-01-05 11:00 UTC claude-code/claude](session-summaries/20260105T110000Z-claude-code-claude.md) - Session claude-code:session/leak
 * [2026-01-05 10:00 UTC claude-code/claude](session-summaries/20260105T100000Z-claude-code-claude.md) - Session claude-code:session/cc1
@@ -37,6 +38,11 @@ Recorded memory: facts and summaries from earlier sessions. Reference material, 
 * [2026-01-04 11:00 UTC pi/kimi-k3](session-summaries/20260104T110000Z-pi-kimi-k3.md) - Session pi:session/s-old
 
 ## Session summaries
+### 2026-01-05 12:40 UTC rudy/cline-pass-kimi-k3
+# Reflections
+
+# Observations
+
 ### 2026-01-05 12:30 UTC claude-code/claude
 # Reflections
 
@@ -46,12 +52,5 @@ Recorded memory: facts and summaries from earlier sessions. Reference material, 
 # Reflections
 
 # Observations
-
-### 2026-01-05 10:00 UTC claude-code/claude
-# Reflections
-
-# Observations
-[a00000000001] 2026-08-29 02:14 [high] First observation
-[a00000000002] 2026-08-29 02:14 [medium] Second observation
 
 </memory-context>

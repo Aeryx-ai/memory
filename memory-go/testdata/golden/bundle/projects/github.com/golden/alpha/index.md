@@ -9,6 +9,7 @@
 
 # Session Summary
 
+* [2026-01-05 12:40 UTC rudy/cline-pass-kimi-k3](session-summaries/20260105T124000Z-rudy-cline-pass-kimi-k3.md) - Session rudy:session/01K4N0000000000000000000A0
 * [2026-01-05 12:30 UTC claude-code/claude](session-summaries/20260105T123000Z-claude-code-claude.md) - Session claude-code:session/failing
 * [2026-01-05 11:00 UTC claude-code/claude](session-summaries/20260105T110000Z-claude-code-claude.md) - Session claude-code:session/leak
 * [2026-01-05 10:00 UTC claude-code/claude](session-summaries/20260105T100000Z-claude-code-claude.md) - Session claude-code:session/cc1
