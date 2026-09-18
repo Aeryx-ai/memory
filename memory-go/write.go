@@ -49,6 +49,18 @@ func Remember(b *Bundle, dir Dir, actor string, at time.Time, in RememberInput) 
 	for _, s := range in.Sources {
 		sources = append(sources, Source{Resource: s})
 	}
+	var res WriteResult
+	if err := withRememberLock(b.Abs(rel), func() error {
+		res, err = rememberLocked(b, dir, actor, at, rel, in, sources)
+		return err
+	}); err != nil {
+		return WriteResult{}, err
+	}
+	return res, nil
+}
+
+// rememberLocked is Remember's body under the per-concept lock.
+func rememberLocked(b *Bundle, dir Dir, actor string, at time.Time, rel string, in RememberInput, sources []Source) (WriteResult, error) {
 	existing, err := b.ReadConcept(rel)
 	if err != nil && CodeOf(err) != CodeNotFound {
 		return WriteResult{}, err

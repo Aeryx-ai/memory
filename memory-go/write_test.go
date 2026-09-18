@@ -2,7 +2,9 @@ package memory
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"reflect"
 	"strings"
 	"testing"
@@ -202,5 +204,47 @@ func TestZeroTimeIsRefused(t *testing.T) {
 	}
 	if _, err := RunFoldJob(b, FoldOptions{Session: "s", Transcript: "/nope", Now: zero}); CodeOf(err) != CodeUsage {
 		t.Errorf("RunFoldJob: %v", err)
+	}
+}
+
+// TestConcurrentRememberLosesNoRevision runs concurrent Remember calls on
+// one title under -race: the read-modify-write must be serialized so every
+// source and every log line survives.
+func TestConcurrentRememberLosesNoRevision(t *testing.T) {
+	b := initBundle(t)
+	root, _ := b.Dir("")
+	at := time.Date(2026, 1, 2, 3, 5, 0, 0, time.UTC)
+	const n = 16
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := Remember(b, root, "pi/k", at, RememberInput{
+				Type:    "User",
+				Title:   "Shared title",
+				Sources: []string{fmt.Sprintf("rudy:session/%026d", i)},
+			})
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, err := b.ReadConcept("user/shared-title.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Sources) != n {
+		t.Errorf("sources = %d, want %d: revisions were lost", len(c.Sources), n)
+	}
+	log, _ := b.Read("log.md")
+	if got := strings.Count(log, "[Shared title]"); got != n {
+		t.Errorf("log lines = %d, want %d: log appends were lost", got, n)
 	}
 }
